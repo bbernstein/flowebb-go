@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/bbernstein/flowebb/backend-go/internal/api"
@@ -77,12 +78,11 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		// Otherwise, look for coordinates
 		lat, lon, err := api.ParseCoordinates(params)
 		if err != nil {
-			switch err.(type) {
-			case api.InvalidCoordinatesError:
+			var invalidCoordErr api.InvalidCoordinatesError
+			if errors.As(err, &invalidCoordErr) {
 				return api.Error(err.Error(), http.StatusBadRequest)
-			default:
-				return api.Error("Invalid parameters", http.StatusBadRequest)
 			}
+			return api.Error("Invalid parameters", http.StatusBadRequest)
 		}
 
 		response, err = tideService.GetCurrentTide(ctx, lat, lon, startTimeStr, endTimeStr)

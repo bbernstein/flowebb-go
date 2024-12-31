@@ -118,7 +118,11 @@ func (f *NOAAStationFinder) getStationList(ctx context.Context) ([]models.Statio
 	if err != nil {
 		return nil, fmt.Errorf("fetching stations: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("closing response body: %w", closeErr)
+		}
+	}()
 
 	var noaaResp struct {
 		Stations []struct {
