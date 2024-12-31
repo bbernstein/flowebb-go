@@ -59,21 +59,12 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 	params := request.QueryStringParameters
 	log.Info().Msg("Handling tides request")
 
-	var startTime, endTime *time.Time
-	if startStr, ok := params["startDateTime"]; ok {
-		t, err := time.Parse(time.RFC3339, startStr)
-		if err != nil {
-			return api.Error("Invalid startDateTime format", http.StatusBadRequest)
-		}
-		startTime = &t
+	var startTimeStr, endTimeStr *string
+	if str, ok := params["startDateTime"]; ok {
+		startTimeStr = &str
 	}
-
-	if endStr, ok := params["endDateTime"]; ok {
-		t, err := time.Parse(time.RFC3339, endStr)
-		if err != nil {
-			return api.Error("Invalid endDateTime format", http.StatusBadRequest)
-		}
-		endTime = &t
+	if str, ok := params["endDateTime"]; ok {
+		endTimeStr = &str
 	}
 
 	var response *models.ExtendedTideResponse
@@ -81,7 +72,7 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 
 	// Check if we're looking up by station ID or coordinates
 	if stationID, ok := params["stationId"]; ok {
-		response, err = tideService.GetCurrentTideForStation(ctx, stationID, startTime, endTime)
+		response, err = tideService.GetCurrentTideForStation(ctx, stationID, startTimeStr, endTimeStr)
 	} else {
 		// Otherwise, look for coordinates
 		lat, lon, err := api.ParseCoordinates(params)
@@ -94,7 +85,7 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 			}
 		}
 
-		response, err = tideService.GetCurrentTide(ctx, lat, lon, startTime, endTime)
+		response, err = tideService.GetCurrentTide(ctx, lat, lon, startTimeStr, endTimeStr)
 	}
 
 	if err != nil {

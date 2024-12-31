@@ -111,7 +111,7 @@ func (f *NOAAStationFinder) getStationList(ctx context.Context) ([]models.Statio
 		log.Debug().Msg("Cache HIT for station list")
 		return cachedStations, nil
 	}
-	log.Debug().Msg("Cache MISS for station list")
+	log.Debug().Msg("Cache MISS for station list, calling noaa API")
 
 	// Fetch from NOAA API
 	resp, err := f.httpClient.Get(ctx, "/mdapi/prod/webapi/tidepredstations.json")

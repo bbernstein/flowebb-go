@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -36,47 +37,35 @@ func init() {
 		}
 		zerolog.SetGlobalLevel(level)
 
-		// Decide on output format by environment.
-		env := os.Getenv("ENV") // e.g. "local", "development", "production"
-		if env == "local" || env == "development" {
-			// Use console-friendly output in local/dev
+		// Setup console logger for development
+		if env := os.Getenv("ENV"); env == "local" || env == "development" {
 			log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
-		} else {
-			// Use structured JSON logs in production/AWS
-			// Add any additional fields or timestamp as desired
-			log.Logger = zerolog.New(os.Stdout).
-				With().
-				Timestamp().
-				Logger()
 		}
 
-		log.Info().Str("env", env).Msg("Environment")
-		log.Debug().Msg("Debug logs enabled")
-		log.Info().Msg("Info logs enabled")
-
-		// Initialize dependencies
+		// Initialize HTTP client
 		httpClient := client.New(client.Options{
 			BaseURL: "https://api.tidesandcurrents.noaa.gov",
 			Timeout: 30 * time.Second,
 		})
+
+		// Initialize station finder with cache
 		stationCache := cache.NewStationCache()
 		stationFinder = station.NewNOAAStationFinder(httpClient, stationCache)
 	})
 }
 
 func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// Extract parameters
 	params := request.QueryStringParameters
+	log.Info().Msg("Handling stations request")
 
-	log.Info().Msg("Handling Lambda request")
-
-	// Check if we're looking for a specific station
+	// Check if we're looking up by station ID or coordinates
 	if stationID, ok := params["stationId"]; ok {
-		localStation, err := stationFinder.FindStation(ctx, stationID)
+		stationLocal, err := stationFinder.FindStation(ctx, stationID)
 		if err != nil {
+			log.Error().Err(err).Msg("Error finding station")
 			return api.Error("Station not found", http.StatusNotFound)
 		}
-		return api.Success(api.NewStationsResponse([]models.Station{*localStation}))
+		return api.Success(api.NewStationsResponse([]models.Station{*stationLocal}))
 	}
 
 	// Otherwise, look for coordinates
@@ -90,9 +79,17 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		}
 	}
 
-	// Find nearest stations
-	stations, err := stationFinder.FindNearestStations(ctx, lat, lon, 5)
+	// Default limit to 5 if not specified
+	limit := 5
+	if limitStr, ok := params["limit"]; ok {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil {
+			limit = parsedLimit
+		}
+	}
+
+	stations, err := stationFinder.FindNearestStations(ctx, lat, lon, limit)
 	if err != nil {
+		log.Error().Err(err).Msg("Error finding stations")
 		return api.Error("Error finding stations", http.StatusInternalServerError)
 	}
 

@@ -13,12 +13,14 @@ const (
 type TideExtreme struct {
 	Type      TideType `json:"type"`
 	Timestamp int64    `json:"timestamp"`
+	LocalTime string   `json:"localTime"` // Add this field
 	Height    float64  `json:"height"`
 }
 
 // TidePrediction represents a tide prediction at a specific time
 type TidePrediction struct {
 	Timestamp int64   `json:"timestamp"`
+	LocalTime string  `json:"localTime"` // Add this field
 	Height    float64 `json:"height"`
 }
 
@@ -30,6 +32,7 @@ func (tp TidePrediction) GetTimestamp() int64 {
 type ExtendedTideResponse struct {
 	ResponseType          string           `json:"responseType"`
 	Timestamp             int64            `json:"timestamp"`
+	LocalTime             string           `json:"localTime"` // Add this field
 	WaterLevel            *float64         `json:"waterLevel"`
 	PredictedLevel        *float64         `json:"predictedLevel"`
 	NearestStation        string           `json:"nearestStation"`
