@@ -16,7 +16,6 @@ import (
 )
 
 func TestNOAAStationFinder_FindStation(t *testing.T) {
-	// Create mock HTTP server
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		response := struct {
 			StationList []struct {
@@ -27,7 +26,8 @@ func TestNOAAStationFinder_FindStation(t *testing.T) {
 				Lat          float64 `json:"lat"`
 				Lon          float64 `json:"lon"`
 				TimeZoneCorr string  `json:"timeZoneCorr"`
-				// Level and StationType are missing from this struct
+				Level        string  `json:"level"`
+				StationType  string  `json:"stationType"`
 			} `json:"stationList"`
 		}{
 			StationList: []struct {
@@ -38,6 +38,8 @@ func TestNOAAStationFinder_FindStation(t *testing.T) {
 				Lat          float64 `json:"lat"`
 				Lon          float64 `json:"lon"`
 				TimeZoneCorr string  `json:"timeZoneCorr"`
+				Level        string  `json:"level"`
+				StationType  string  `json:"stationType"`
 			}{
 				{
 					StationId:    "9447130",
@@ -47,12 +49,15 @@ func TestNOAAStationFinder_FindStation(t *testing.T) {
 					Lat:          47.602638889,
 					Lon:          -122.339167,
 					TimeZoneCorr: "-8",
-					// Level and StationType should be omitted completely
+					Level:        "R",
+					StationType:  "R",
 				},
 			},
 		}
-
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}))
 	defer srv.Close()
 
@@ -76,16 +81,18 @@ func TestNOAAStationFinder_FindStation(t *testing.T) {
 		{
 			name:      "existing station",
 			stationID: "9447130",
-			want: &models.Station{ // Change this type
+			want: &models.Station{
 				ID:             "9447130",
 				Name:           "Seattle",
 				State:          stringPtr("WA"),
 				Region:         stringPtr("Puget Sound"),
 				Latitude:       47.602638889,
 				Longitude:      -122.339167,
-				Source:         models.SourceNOAA, // Use models.Source
+				Source:         models.SourceNOAA,
 				Capabilities:   []string{"WATER_LEVEL"},
 				TimeZoneOffset: -8 * 3600,
+				Level:          stringPtr("R"),
+				StationType:    stringPtr("R"),
 			},
 			wantErr: false,
 		},
@@ -114,7 +121,6 @@ func TestNOAAStationFinder_FindStation(t *testing.T) {
 }
 
 func TestNOAAStationFinder_FindNearestStations(t *testing.T) {
-	// Create mock HTTP server with multiple stations
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		response := struct {
 			StationList []struct {
@@ -125,6 +131,8 @@ func TestNOAAStationFinder_FindNearestStations(t *testing.T) {
 				Lat          float64 `json:"lat"`
 				Lon          float64 `json:"lon"`
 				TimeZoneCorr string  `json:"timeZoneCorr"`
+				Level        string  `json:"level"`
+				StationType  string  `json:"stationType"`
 			} `json:"stationList"`
 		}{
 			StationList: []struct {
@@ -135,6 +143,8 @@ func TestNOAAStationFinder_FindNearestStations(t *testing.T) {
 				Lat          float64 `json:"lat"`
 				Lon          float64 `json:"lon"`
 				TimeZoneCorr string  `json:"timeZoneCorr"`
+				Level        string  `json:"level"`
+				StationType  string  `json:"stationType"`
 			}{
 				{
 					StationId:    "9447130",
@@ -144,6 +154,8 @@ func TestNOAAStationFinder_FindNearestStations(t *testing.T) {
 					Lat:          47.602638889,
 					Lon:          -122.339167,
 					TimeZoneCorr: "-8",
+					Level:        "R",
+					StationType:  "R",
 				},
 				{
 					StationId:    "9447819",
@@ -153,11 +165,16 @@ func TestNOAAStationFinder_FindNearestStations(t *testing.T) {
 					Lat:          47.269,
 					Lon:          -122.4138,
 					TimeZoneCorr: "-8",
+					Level:        "R",
+					StationType:  "R",
 				},
 			},
 		}
 
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}))
 	defer srv.Close()
 

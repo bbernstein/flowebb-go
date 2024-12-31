@@ -86,6 +86,9 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		}
 
 		response, err = tideService.GetCurrentTide(ctx, lat, lon, startTimeStr, endTimeStr)
+		if err != nil {
+			return api.Error("Error getting tide data", http.StatusInternalServerError)
+		}
 	}
 
 	if err != nil {

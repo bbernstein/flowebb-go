@@ -136,16 +136,14 @@ func (s *Service) GetCurrentTideForStation(ctx context.Context, stationID string
 
 	// Determine tide type
 	if len(filteredPredictions) >= 2 {
-		if currentLevel != nil {
-			idx := findNearestIndex(filteredPredictions, nowLocal)
-			if idx > 0 && idx < len(filteredPredictions) {
-				if *currentLevel > filteredPredictions[idx-1].Height {
-					rising := models.TideTypeRising
-					currentType = &rising
-				} else {
-					falling := models.TideFalling
-					currentType = &falling
-				}
+		idx := findNearestIndex(filteredPredictions, nowLocal)
+		if idx > 0 && idx < len(filteredPredictions) {
+			if *currentLevel > filteredPredictions[idx-1].Height {
+				rising := models.TideTypeRising
+				currentType = &rising
+			} else {
+				falling := models.TideFalling
+				currentType = &falling
 			}
 		}
 	}
@@ -180,14 +178,18 @@ func (s *Service) fetchNoaaPredictions(ctx context.Context, stationID, startDate
 	if err != nil {
 		return nil, fmt.Errorf("fetching predictions: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("closing response body: %w", closeErr)
+		}
+	}()
 
 	log.Debug().Msgf("Fetched predictions from noaa: station=%s begin_date=%s end_date=%s",
 		stationID, startDate, endDate)
 
 	var noaaResp models.NoaaResponse
 	if err := json.NewDecoder(resp.Body).Decode(&noaaResp); err != nil {
-		return nil, fmt.Errorf("decoding response: ", err)
+		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 
 	predictions := make([]models.TidePrediction, len(noaaResp.Predictions))
@@ -220,7 +222,11 @@ func (s *Service) fetchNoaaExtremes(ctx context.Context, stationID, startDate, e
 	if err != nil {
 		return nil, fmt.Errorf("fetching extremes: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("closing response body: %w", closeErr)
+		}
+	}()
 
 	log.Debug().Msgf("Fetched extremes from noaa: station=%s begin_date=%s end_date=%s",
 		stationID, startDate, endDate)
