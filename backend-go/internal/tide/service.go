@@ -19,20 +19,19 @@ import (
 type Service struct {
 	httpClient      *client.Client
 	stationFinder   *station.NOAAStationFinder
-	predictionCache *cache.DynamoPredictionCache
+	predictionCache *cache.CacheService
 }
 
 func NewService(ctx context.Context, httpClient *client.Client, stationFinder *station.NOAAStationFinder) (*Service, error) {
-	// Initialize DynamoDB client
-	dynamoClient, err := cache.NewDynamoClient(ctx)
+	cacheService, err := cache.NewCacheService(ctx, cache.DefaultLRUSize, cache.DefaultTTL)
 	if err != nil {
-		return nil, fmt.Errorf("creating DynamoDB client: %w", err)
+		return nil, fmt.Errorf("creating cache service: %w", err)
 	}
 
 	return &Service{
 		httpClient:      httpClient,
 		stationFinder:   stationFinder,
-		predictionCache: cache.NewDynamoPredictionCache(dynamoClient),
+		predictionCache: cacheService,
 	}, nil
 }
 
