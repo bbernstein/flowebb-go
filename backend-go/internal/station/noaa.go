@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/bbernstein/flowebb/backend-go/internal/config"
 	"github.com/rs/zerolog/log"
 	"math"
 	"sort"
@@ -23,7 +24,8 @@ type NOAAStationFinder struct {
 
 func NewNOAAStationFinder(httpClient *client.Client, stationCache *cache.StationCache) *NOAAStationFinder {
 	if stationCache == nil {
-		stationCache = cache.NewStationCache()
+		cacheConfig := config.GetCacheConfig()
+		stationCache = cache.NewStationCache(cacheConfig)
 	}
 	return &NOAAStationFinder{
 		httpClient: httpClient,

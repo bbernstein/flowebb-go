@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/bbernstein/flowebb/backend-go/internal/cache"
+	"github.com/bbernstein/flowebb/backend-go/internal/config"
 	"github.com/bbernstein/flowebb/backend-go/internal/models"
 	"github.com/bbernstein/flowebb/backend-go/internal/station"
 	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
+
 	"github.com/rs/zerolog/log"
 	"math"
 	"sort"
@@ -18,15 +20,20 @@ import (
 type Service struct {
 	httpClient      *client.Client
 	stationFinder   *station.NOAAStationFinder
-	predictionCache *cache.TidePredictionCache
+	predictionCache *cache.CacheService
 }
 
-func NewService(httpClient *client.Client, stationFinder *station.NOAAStationFinder) *Service {
+func NewService(ctx context.Context, httpClient *client.Client, stationFinder *station.NOAAStationFinder) (*Service, error) {
+	cacheService, err := cache.NewCacheService(ctx, config.GetCacheConfig())
+	if err != nil {
+		return nil, fmt.Errorf("creating cache service: %w", err)
+	}
+
 	return &Service{
 		httpClient:      httpClient,
 		stationFinder:   stationFinder,
-		predictionCache: cache.NewTidePredictionCache(),
-	}
+		predictionCache: cacheService,
+	}, nil
 }
 
 func (s *Service) GetCurrentTide(ctx context.Context, lat, lon float64, startTimeStr, endTimeStr *string) (*models.ExtendedTideResponse, error) {
@@ -45,24 +52,24 @@ func (s *Service) GetCurrentTide(ctx context.Context, lat, lon float64, startTim
 func (s *Service) GetCurrentTideForStation(ctx context.Context, stationID string, startTimeStr, endTimeStr *string) (*models.ExtendedTideResponse, error) {
 	localStation, err := s.stationFinder.FindStation(ctx, stationID)
 	if err != nil {
-		return nil, fmt.Errorf("finding station: %w", err)
+		return nil, fmt.Errorf("finding localStation: %w", err)
 	}
 
-	// Create timezone location for the station
+	// Create timezone location for the localStation
 	location := time.FixedZone("Station", localStation.TimeZoneOffset)
 	now := time.Now().In(location)
 
-	// Parse start time if provided, otherwise use start of today in station's timezone
+	// Parse start time if provided, otherwise use start of today in localStation's timezone
 	var startTime time.Time
 	if startTimeStr != nil {
-		// Parse local datetime string in station's timezone
+		// Parse local datetime string in localStation's timezone
 		var err error
 		startTime, err = time.ParseInLocation("2006-01-02T15:04:05", *startTimeStr, location)
 		if err != nil {
 			return nil, fmt.Errorf("parsing start time: %w", err)
 		}
 	} else {
-		// Use start of today in station's timezone
+		// Use start of today in localStation's timezone
 		startTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
 	}
 
@@ -94,45 +101,60 @@ func (s *Service) GetCurrentTideForStation(ctx context.Context, stationID string
 	// End time should be the start of the day after the last day
 	queryEnd := endTime.Truncate(24*time.Hour).AddDate(0, 0, 1)
 
-	record, err := s.getPredictionsForDateRange(ctx, localStation, queryStart, queryEnd, location)
+	records, err := s.getPredictionsForDateRange(ctx, localStation, queryStart, queryEnd, location)
 	if err != nil {
 		return nil, fmt.Errorf("getting predictions: %w", err)
 	}
 
+	// Combine predictions and extremes from all records
+	var allPredictions []models.TidePrediction
+	var allExtremes []models.TideExtreme
+	for _, record := range records {
+		allPredictions = append(allPredictions, record.Predictions...)
+		allExtremes = append(allExtremes, record.Extremes...)
+	}
+
+	// Sort combined data
+	sort.Slice(allPredictions, func(i, j int) bool {
+		return allPredictions[i].Timestamp < allPredictions[j].Timestamp
+	})
+	sort.Slice(allExtremes, func(i, j int) bool {
+		return allExtremes[i].Timestamp < allExtremes[j].Timestamp
+	})
+
+	// Filter to requested time range
+	startTimestamp := startTime.Unix() * 1000
+	endTimestamp := endTime.Unix() * 1000
+
 	// Calculate current tide level and type
 	var currentLevel *float64
 	var currentType *models.TideType
-	var filteredPredictions []models.TidePrediction
-	var filteredExtremes []models.TideExtreme
 
 	// Convert times for filtering while preserving local time meaning
-	startLocal := startTime.Unix() * 1000 // milliseconds
-	endLocal := endTime.Unix() * 1000     // milliseconds
-	nowLocal := now.Unix() * 1000         // milliseconds
+	nowLocal := now.Unix() * 1000 // milliseconds
 
-	if useExtremes {
+	if allPredictions == nil {
+		allPredictions = make([]models.TidePrediction, 0)
 		log.Debug().Msg("Using extremes for prediction")
-		var interpolatedPredictions []models.TidePrediction
 		// Generate predictions at 6-minute intervals
-		for t := startLocal; t <= endLocal; t += 6 * 60 * 1000 {
-			height := interpolateExtremes(record.Extremes, t)
-			interpolatedPredictions = append(interpolatedPredictions, models.TidePrediction{
+		for t := startTimestamp; t <= endTimestamp; t += 6 * 60 * 1000 {
+			height := interpolateExtremes(allExtremes, t)
+			allPredictions = append(allPredictions, models.TidePrediction{
 				Timestamp: t,
 				LocalTime: formatLocalTime(t, location),
 				Height:    height,
 			})
 		}
-		filteredPredictions = interpolatedPredictions
-		level := interpolateExtremes(record.Extremes, nowLocal)
+		level := interpolateExtremes(allExtremes, nowLocal)
 		currentLevel = &level
 	} else {
 		log.Debug().Msg("Using predictions for prediction")
-		level := interpolatePredictions(record.Predictions, nowLocal)
+		level := interpolatePredictions(allPredictions, nowLocal)
 		currentLevel = &level
-		filteredPredictions = filterTimestamps(record.Predictions, startLocal, endLocal)
 	}
 
-	filteredExtremes = filterExtremes(record.Extremes, startLocal, endLocal)
+	filteredPredictions := filterTimestamps(allPredictions, startTimestamp, endTimestamp)
+	filteredExtremes := filterExtremes(allExtremes, startTimestamp, endTimestamp)
 
 	// Determine tide type
 	if len(filteredPredictions) >= 2 {
@@ -330,10 +352,69 @@ func interpolateExtremes(extremes []models.TideExtreme, timestamp int64) float64
 		h01*e2.Height + h11*m2*float64(e2.Timestamp-e1.Timestamp)
 }
 
-func (s *Service) getPredictionsForDateRange(ctx context.Context, station *models.Station, startDate, endDate time.Time, location *time.Location) (*cache.TidePredictionRecord, error) {
-	// Format dates for NOAA API (YYYYMMDD)
-	startStr := startDate.Format("20060102")
-	endStr := endDate.Format("20060102")
+func (s *Service) getPredictionsForDateRange(ctx context.Context, station *models.Station, startDate, endDate time.Time, location *time.Location) ([]*cache.TidePredictionRecord, error) {
+	// Get list of dates in the range
+	var dates []time.Time
+	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
+		dates = append(dates, d)
+	}
+
+	// Try to get all dates from cache first
+	var cachedRecords []*cache.TidePredictionRecord
+	var missingDates []time.Time
+
+	log.Debug().Times("dates", dates).Msg("Checking cache for predictions on dates")
+
+	for _, date := range dates {
+		record, err := s.predictionCache.GetPredictions(ctx, station.ID, date)
+		if err != nil {
+			log.Error().Err(err).
+				Str("station_id", station.ID).
+				Time("date", date).
+				Msg("Error getting predictions from cache")
+		}
+
+		if record != nil {
+			cachedRecords = append(cachedRecords, record)
+		} else {
+			missingDates = append(missingDates, date)
+		}
+	}
+
+	log.Debug().Times("missing_dates", missingDates).Msg("Missing dates from cache")
+	log.Debug().Int("cached_records", len(cachedRecords)).Msg("Cached records")
+
+	// If we have all dates cached, return them
+	if len(missingDates) == 0 {
+		log.Debug().
+			Str("station_id", station.ID).
+			Int("num_days", len(dates)).
+			Msg("Complete cache hit for date range")
+		return cachedRecords, nil
+	}
+
+	// Find the min and max dates that need fetching
+	minDate := missingDates[0]
+	maxDate := missingDates[0]
+	for _, date := range missingDates[1:] {
+		if date.Before(minDate) {
+			minDate = date
+		}
+		if date.After(maxDate) {
+			maxDate = date
+		}
+	}
+
+	// Fetch from NOAA API for the full range that includes missing dates
+	log.Debug().
+		Str("station_id", station.ID).
+		Time("min_date", minDate).
+		Time("max_date", maxDate).
+		Int("missing_days", len(missingDates)).
+		Msg("Fetching missing dates from NOAA")
+
+	startStr := minDate.Format("20060102")
+	endStr := maxDate.Format("20060102")
 
 	predictions, err := s.fetchNoaaPredictions(ctx, station.ID, startStr, endStr, location)
 	if err != nil {
@@ -345,18 +426,58 @@ func (s *Service) getPredictionsForDateRange(ctx context.Context, station *model
 		return nil, err
 	}
 
-	record := &cache.TidePredictionRecord{
-		StationID:   station.ID,
-		Date:        startDate.Format("2006-01-02"), // Use start date for the record
-		StationType: *station.StationType,
-		Predictions: predictions,
-		Extremes:    extremes,
-		LastUpdated: time.Now().Unix(),
+	// Group predictions and extremes by day
+	predictionsByDay := make(map[string][]models.TidePrediction)
+	extremesByDay := make(map[string][]models.TideExtreme)
+
+	for _, p := range predictions {
+		day := time.Unix(p.Timestamp/1000, 0).In(location).Format("2006-01-02")
+		predictionsByDay[day] = append(predictionsByDay[day], p)
 	}
 
-	// Note: We might want to update the cache storage to handle date ranges
-	// For now, just return the record without caching
-	return record, nil
+	for _, e := range extremes {
+		day := time.Unix(e.Timestamp/1000, 0).In(location).Format("2006-01-02")
+		extremesByDay[day] = append(extremesByDay[day], e)
+	}
+
+	// Create and save cache records for missing dates
+	var newRecords []*cache.TidePredictionRecord
+	for _, date := range missingDates {
+		dateStr := date.Format("2006-01-02")
+		record := &cache.TidePredictionRecord{
+			StationID:   station.ID,
+			Date:        dateStr,
+			StationType: *station.StationType,
+			Predictions: predictionsByDay[dateStr],
+			Extremes:    extremesByDay[dateStr],
+		}
+		newRecords = append(newRecords, record)
+	}
+
+	// Save new records to cache asynchronously
+	go func(records []*cache.TidePredictionRecord) {
+		recordsToSave := make([]cache.TidePredictionRecord, len(records))
+		for i, r := range records {
+			recordsToSave[i] = *r
+		}
+
+		if err := s.predictionCache.SavePredictionsBatch(context.Background(), recordsToSave); err != nil {
+			log.Error().Err(err).
+				Str("station_id", station.ID).
+				Int("record_count", len(records)).
+				Msg("Error saving predictions to cache")
+		}
+	}(newRecords)
+
+	// Combine cached and new records
+	allRecords := append(cachedRecords, newRecords...)
+
+	// Sort records by date
+	sort.Slice(allRecords, func(i, j int) bool {
+		return allRecords[i].Date < allRecords[j].Date
+	})
+
+	return allRecords, nil
 }
 
 func findNearestIndex(predictions []models.TidePrediction, timestamp int64) int {
