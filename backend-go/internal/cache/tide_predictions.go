@@ -2,20 +2,9 @@ package cache
 
 import (
 	"fmt"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
 	"sync"
 	"time"
 )
-
-type TidePredictionRecord struct {
-	StationID   string
-	Date        string // Format: YYYY-MM-DD
-	StationType string // "R" for reference, "S" for subordinate
-	Predictions []models.TidePrediction
-	Extremes    []models.TideExtreme
-	LastUpdated int64
-	TTL         int64
-}
 
 type TidePredictionCache struct {
 	records     map[string]map[string]TidePredictionRecord // map[stationID]map[date]record

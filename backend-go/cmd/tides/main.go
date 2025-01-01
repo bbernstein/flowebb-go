@@ -52,7 +52,11 @@ func init() {
 		stationFinder := station.NewNOAAStationFinder(httpClient, nil) // We can pass nil for station cache as it's maintained in the stations lambda
 
 		// Initialize tide service
-		tideService = tide.NewService(httpClient, stationFinder)
+		tideService, err = tide.NewService(context.Background(), httpClient, stationFinder)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to initialize tide service")
+			// Since we're in init, we can't do much more than log the error
+		}
 	})
 }
 
