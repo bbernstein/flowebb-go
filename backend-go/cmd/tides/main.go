@@ -49,7 +49,7 @@ func init() {
 		})
 
 		// Initialize station finder
-		stationFinder := station.NewNOAAStationFinder(httpClient, nil) // We can pass nil for station cache as it's maintained in the stations lambda
+		stationFinder := station.NewNOAAStationFinder(httpClient, nil)
 
 		// Initialize tide service
 		tideService, err = tide.NewService(context.Background(), httpClient, stationFinder)

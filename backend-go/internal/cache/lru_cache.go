@@ -3,16 +3,9 @@ package cache
 import (
 	"context"
 	"fmt"
+	"github.com/bbernstein/flowebb/backend-go/internal/config"
 	"github.com/hashicorp/golang-lru/v2"
-	"github.com/rs/zerolog/log"
 	"time"
-)
-
-const (
-	// DefaultLRUSize is the default size of the LRU cache
-	DefaultLRUSize = 1000
-	// DefaultTTL is the default time-to-live for cache entries
-	DefaultTTL = 15 * time.Minute
 )
 
 // LRUCacheEntry wraps the cached data with metadata
@@ -33,13 +26,10 @@ type CacheService struct {
 }
 
 // NewCacheService creates a new cache service with both LRU and DynamoDB caching
-func NewCacheService(ctx context.Context, lruSize int, ttl time.Duration) (*CacheService, error) {
-	if lruSize <= 0 {
-		lruSize = DefaultLRUSize
-	}
-	if ttl <= 0 {
-		ttl = DefaultTTL
-	}
+// func NewCacheService(ctx context.Context, lruSize int, ttl time.Duration) (*CacheService, error) {
+func NewCacheService(ctx context.Context, config *config.CacheConfig) (*CacheService, error) {
+	lruSize := config.LRUSize
+	ttl := config.GetLRUTTL()
 
 	// Initialize DynamoDB client
 	dynamoClient, err := NewDynamoClient(ctx)
@@ -68,16 +58,10 @@ func getCacheKey(stationID string, date time.Time) string {
 // GetPredictions tries to get predictions first from LRU cache, then from DynamoDB
 func (c *CacheService) GetPredictions(ctx context.Context, stationID string, date time.Time) (*TidePredictionRecord, error) {
 	key := getCacheKey(stationID, date)
-
 	// Try LRU cache first
 	if entry, ok := c.lru.Get(key); ok {
 		if time.Now().Before(entry.ExpiresAt) {
 			c.lruHits++
-			log.Debug().
-				Str("station_id", stationID).
-				Str("date", date.Format("2006-01-02")).
-				Uint64("lru_hits", c.lruHits).
-				Msg("LRU cache hit")
 			return entry.Data, nil
 		}
 		// Entry expired, remove it
@@ -98,21 +82,10 @@ func (c *CacheService) GetPredictions(ctx context.Context, stationID string, dat
 			Data:      record,
 			ExpiresAt: time.Now().Add(c.ttl),
 		})
-		log.Debug().
-			Str("station_id", stationID).
-			Str("date", date.Format("2006-01-02")).
-			Uint64("dynamo_hits", c.dynamoHits).
-			Msg("DynamoDB cache hit")
 		return record, nil
 	}
 	c.dynamoMisses++
 
-	log.Debug().
-		Str("station_id", stationID).
-		Time("date", date).
-		Uint64("lru_misses", c.lruMisses).
-		Uint64("dynamo_misses", c.dynamoMisses).
-		Msg("Cache miss")
 	return nil, nil
 }
 
@@ -144,6 +117,9 @@ func (c *CacheService) SavePredictions(ctx context.Context, record TidePredictio
 func (c *CacheService) SavePredictionsBatch(ctx context.Context, records []TidePredictionRecord) error {
 	// Save to LRU cache
 	for _, record := range records {
+		// Create a copy of the record
+		recordCopy := record // Make a copy of the record
+
 		date, err := time.Parse("2006-01-02", record.Date)
 		if err != nil {
 			return fmt.Errorf("parsing date: %w", err)
@@ -151,7 +127,7 @@ func (c *CacheService) SavePredictionsBatch(ctx context.Context, records []TideP
 
 		key := getCacheKey(record.StationID, date)
 		c.lru.Add(key, &LRUCacheEntry{
-			Data:      &record,
+			Data:      &recordCopy,
 			ExpiresAt: time.Now().Add(c.ttl),
 		})
 	}

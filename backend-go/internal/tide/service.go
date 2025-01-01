@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/bbernstein/flowebb/backend-go/internal/cache"
+	"github.com/bbernstein/flowebb/backend-go/internal/config"
 	"github.com/bbernstein/flowebb/backend-go/internal/models"
 	"github.com/bbernstein/flowebb/backend-go/internal/station"
 	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
@@ -23,7 +24,7 @@ type Service struct {
 }
 
 func NewService(ctx context.Context, httpClient *client.Client, stationFinder *station.NOAAStationFinder) (*Service, error) {
-	cacheService, err := cache.NewCacheService(ctx, cache.DefaultLRUSize, cache.DefaultTTL)
+	cacheService, err := cache.NewCacheService(ctx, config.GetCacheConfig())
 	if err != nil {
 		return nil, fmt.Errorf("creating cache service: %w", err)
 	}

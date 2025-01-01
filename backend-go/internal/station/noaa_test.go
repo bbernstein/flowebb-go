@@ -3,6 +3,7 @@ package station
 import (
 	"context"
 	"encoding/json"
+	"github.com/bbernstein/flowebb/backend-go/internal/config"
 	"github.com/bbernstein/flowebb/backend-go/internal/models"
 	"net/http"
 	"net/http/httptest"
@@ -62,7 +63,8 @@ func TestNOAAStationFinder_FindStation(t *testing.T) {
 	defer srv.Close()
 
 	// Create test cache
-	testCache := cache.NewStationCache()
+	testConfig := config.GetCacheConfig()
+	testCache := cache.NewStationCache(testConfig)
 
 	// Create HTTP client with the test server URL
 	httpClient := client.New(client.Options{
@@ -178,7 +180,9 @@ func TestNOAAStationFinder_FindNearestStations(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	testCache := cache.NewStationCache()
+	// Create test cache
+	testConfig := config.GetCacheConfig()
+	testCache := cache.NewStationCache(testConfig)
 	httpClient := client.New(client.Options{
 		BaseURL: srv.URL,
 		Timeout: 5 * time.Second,

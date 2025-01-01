@@ -6,7 +6,6 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/bbernstein/flowebb/backend-go/internal/api"
-	"github.com/bbernstein/flowebb/backend-go/internal/cache"
 	"github.com/bbernstein/flowebb/backend-go/internal/models"
 	"github.com/bbernstein/flowebb/backend-go/internal/station"
 	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
@@ -50,8 +49,10 @@ func init() {
 		})
 
 		// Initialize station finder with cache
-		stationCache := cache.NewStationCache()
-		stationFinder = station.NewNOAAStationFinder(httpClient, stationCache)
+		stationFinder = station.NewNOAAStationFinder(httpClient, nil)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Error initializing station finder")
+		}
 	})
 }
 

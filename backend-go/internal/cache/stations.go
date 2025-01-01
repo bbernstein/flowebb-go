@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"github.com/bbernstein/flowebb/backend-go/internal/config"
 	"sync"
 	"time"
 
@@ -11,12 +12,15 @@ type StationCache struct {
 	stations    []models.Station
 	lastUpdated time.Time
 	mu          sync.RWMutex
+	ttl         time.Duration
 }
 
-func NewStationCache() *StationCache {
+func NewStationCache(config *config.CacheConfig) *StationCache {
+	ttl := config.GetStationListTTL()
 	return &StationCache{
 		stations:    make([]models.Station, 0),
 		lastUpdated: time.Time{}, // Zero time to ensure first fetch
+		ttl:         ttl,
 	}
 }
 
@@ -39,5 +43,5 @@ func (c *StationCache) SetStations(stations []models.Station) {
 }
 
 func (c *StationCache) isExpired() bool {
-	return time.Since(c.lastUpdated) > 24*time.Hour
+	return time.Since(c.lastUpdated) > c.ttl
 }
