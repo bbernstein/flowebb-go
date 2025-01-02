@@ -31,14 +31,22 @@ func (c *StationCache) GetStations() []models.Station {
 	if c.isExpired() {
 		return nil
 	}
-	return c.stations
+
+	// Create a copy of the stations slice to prevent race conditions
+	stations := make([]models.Station, len(c.stations))
+	copy(stations, c.stations)
+	return stations
 }
 
 func (c *StationCache) SetStations(stations []models.Station) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.stations = stations
+	// Create a copy of the input slice
+	newStations := make([]models.Station, len(stations))
+	copy(newStations, stations)
+
+	c.stations = newStations
 	c.lastUpdated = time.Now()
 }
 

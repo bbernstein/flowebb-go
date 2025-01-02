@@ -8,8 +8,26 @@ import (
 	"strconv"
 )
 
+type APIResponder interface {
+	GetResponseType() string
+}
+
 type APIResponse struct {
 	ResponseType string `json:"responseType"`
+}
+
+func (r APIResponse) GetResponseType() string {
+	return r.ResponseType
+}
+
+var (
+	_ APIResponder = (*StationsResponse)(nil)
+	_ APIResponder = (*ErrorResponse)(nil)
+)
+
+type APIError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 type StationsResponse struct {
@@ -72,7 +90,7 @@ func ParseCoordinates(params map[string]string) (float64, float64, error) {
 	lonStr, hasLon := params["lon"]
 
 	if !hasLat || !hasLon {
-		return 0, 0, nil
+		return 0, 0, InvalidCoordinatesError{}
 	}
 
 	lat, err := strconv.ParseFloat(latStr, 64)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/bbernstein/flowebb/backend-go/internal/config"
+	"github.com/bbernstein/flowebb/backend-go/internal/tide"
 	"github.com/rs/zerolog/log"
 	"math"
 	"sort"
@@ -21,6 +22,8 @@ type NOAAStationFinder struct {
 	cache      *cache.StationCache
 	cacheMutex sync.RWMutex
 }
+
+var _ tide.StationFinder = (*NOAAStationFinder)(nil)
 
 func NewNOAAStationFinder(httpClient *client.Client, stationCache *cache.StationCache) *NOAAStationFinder {
 	if stationCache == nil {
@@ -42,6 +45,9 @@ func (f *NOAAStationFinder) FindStation(ctx context.Context, stationID string) (
 	for _, station := range stations {
 		if station.ID == stationID {
 			log.Trace().Str("station_id", stationID).Str("stationType", *station.StationType).Msg("FindStation: Found station")
+			if err := station.Validate(); err != nil {
+				return &station, fmt.Errorf("invalid station data: %w", err)
+			}
 			return &station, nil
 		}
 	}
@@ -50,6 +56,17 @@ func (f *NOAAStationFinder) FindStation(ctx context.Context, stationID string) (
 }
 
 func (f *NOAAStationFinder) FindNearestStations(ctx context.Context, lat, lon float64, limit int) ([]models.Station, error) {
+	// validate params
+	if lat < -90 || lat > 90 {
+		return nil, fmt.Errorf("invalid latitude: %f", lat)
+	}
+	if lon < -180 || lon > 180 {
+		return nil, fmt.Errorf("invalid longitude: %f", lon)
+	}
+	if limit <= 0 || limit > 100 {
+		return nil, fmt.Errorf("invalid limit: %d", limit)
+	}
+
 	stations, err := f.getStationList(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting station list: %w", err)
@@ -169,6 +186,9 @@ func (f *NOAAStationFinder) getStationList(ctx context.Context) ([]models.Statio
 			TimeZoneOffset: parseTimeZoneOffset(s.TimeZoneCorr),
 			Level:          level,
 			StationType:    stationType,
+		}
+		if err := stations[i].Validate(); err != nil {
+			return nil, fmt.Errorf("invalid station data: %w", err)
 		}
 	}
 

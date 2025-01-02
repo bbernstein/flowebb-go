@@ -18,6 +18,10 @@ type CacheConfig struct {
 	DynamoTTLDays      int
 	StationListTTLDays int
 
+	// Batch processing settings
+	BatchSize       int
+	MaxBatchRetries int
+
 	// Station List Cache settings
 	StationListSize int
 
@@ -32,6 +36,8 @@ const (
 	defaultLRUTTLMinutes      = 15
 	defaultDynamoTTLDays      = 2
 	defaultStationListTTLDays = 2
+	defaultBatchSize          = 25
+	defaultMaxBatchRetries    = 3
 )
 
 // GetCacheConfig returns the cache configuration from environment variables or defaults
@@ -42,6 +48,8 @@ func GetCacheConfig() *CacheConfig {
 		LRUTTLMinutes:      getEnvInt("CACHE_LRU_TTL_MINUTES", defaultLRUTTLMinutes),
 		DynamoTTLDays:      getEnvInt("CACHE_DYNAMO_TTL_DAYS", defaultDynamoTTLDays),
 		StationListTTLDays: getEnvInt("CACHE_STATION_LIST_TTL_DAYS", defaultStationListTTLDays),
+		BatchSize:          getEnvInt("CACHE_BATCH_SIZE", defaultBatchSize),
+		MaxBatchRetries:    getEnvInt("CACHE_MAX_BATCH_RETRIES", defaultMaxBatchRetries),
 		EnableLRUCache:     getEnvBool("CACHE_ENABLE_LRU", true),
 		EnableDynamoCache:  getEnvBool("CACHE_ENABLE_DYNAMO", true),
 	}
@@ -51,6 +59,8 @@ func GetCacheConfig() *CacheConfig {
 		Int("lru_ttl_minutes", config.LRUTTLMinutes).
 		Int("dynamo_ttl_days", config.DynamoTTLDays).
 		Int("station_list_ttl_days", config.StationListTTLDays).
+		Int("batch_size", config.BatchSize).
+		Int("max_batch_retries", config.MaxBatchRetries).
 		Bool("enable_lru", config.EnableLRUCache).
 		Bool("enable_dynamo", config.EnableDynamoCache).
 		Msg("Cache configuration loaded")

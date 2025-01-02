@@ -2,25 +2,21 @@ package main
 
 import (
 	"context"
-	"errors"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/bbernstein/flowebb/backend-go/internal/api"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
+	"github.com/bbernstein/flowebb/backend-go/internal/handler"
 	"github.com/bbernstein/flowebb/backend-go/internal/station"
 	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"net/http"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 )
 
 var (
-	stationFinder *station.NOAAStationFinder
-	setupOnce     sync.Once
+	stationsHandler *handler.StationsHandler
+	setupOnce       sync.Once
 )
 
 func init() {
@@ -49,52 +45,15 @@ func init() {
 		})
 
 		// Initialize station finder with cache
-		stationFinder = station.NewNOAAStationFinder(httpClient, nil)
-		if err != nil {
-			log.Fatal().Err(err).Msg("Error initializing station finder")
-		}
+		stationFinder := station.NewNOAAStationFinder(httpClient, nil)
+
+		// Initialize handler
+		stationsHandler = handler.NewStationsHandler(stationFinder)
 	})
 }
 
 func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	params := request.QueryStringParameters
-	log.Info().Msg("Handling stations request")
-
-	// Check if we're looking up by station ID or coordinates
-	if stationID, ok := params["stationId"]; ok {
-		stationLocal, err := stationFinder.FindStation(ctx, stationID)
-		if err != nil {
-			log.Error().Err(err).Msg("Error finding station")
-			return api.Error("Station not found", http.StatusNotFound)
-		}
-		return api.Success(api.NewStationsResponse([]models.Station{*stationLocal}))
-	}
-
-	// Otherwise, look for coordinates
-	lat, lon, err := api.ParseCoordinates(params)
-	if err != nil {
-		var invalidCoordErr api.InvalidCoordinatesError
-		if errors.As(err, &invalidCoordErr) {
-			return api.Error(err.Error(), http.StatusBadRequest)
-		}
-		return api.Error("Invalid parameters", http.StatusBadRequest)
-	}
-
-	// Default limit to 5 if not specified
-	limit := 5
-	if limitStr, ok := params["limit"]; ok {
-		if parsedLimit, err := strconv.Atoi(limitStr); err == nil {
-			limit = parsedLimit
-		}
-	}
-
-	stations, err := stationFinder.FindNearestStations(ctx, lat, lon, limit)
-	if err != nil {
-		log.Error().Err(err).Msg("Error finding stations")
-		return api.Error("Error finding stations", http.StatusInternalServerError)
-	}
-
-	return api.Success(api.NewStationsResponse(stations))
+	return stationsHandler.HandleRequest(ctx, request)
 }
 
 func main() {
