@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/rs/zerolog/log"
 	"os"
 
@@ -23,8 +24,13 @@ func NewDynamoClient(ctx context.Context) (DynamoDBClient, error) {
 	if endpoint := os.Getenv("DYNAMODB_ENDPOINT"); endpoint != "" {
 		// Local development configuration
 		log.Debug().Str("endpoint", endpoint).Msg("Using local DynamoDB endpoint")
+
+		// Add static credentials configuration
 		customOptions := []func(*config.LoadOptions) error{
 			config.WithRegion("local"),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+				"local", "local", "local",
+			)),
 			config.WithClientLogMode(aws.LogRetries),
 		}
 
