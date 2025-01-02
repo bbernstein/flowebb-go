@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/bbernstein/flowebb/backend-go/internal/api"
@@ -31,7 +30,9 @@ func init() {
 		if levelStr == "" {
 			levelStr = "info"
 		}
-		level, err := zerolog.ParseLevel(levelStr)
+		var err error
+		var level zerolog.Level
+		level, err = zerolog.ParseLevel(levelStr)
 		if err != nil {
 			level = zerolog.InfoLevel
 		}
@@ -42,20 +43,17 @@ func init() {
 			log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 		}
 
-		// Initialize HTTP client
+		ctx := context.Background()
 		httpClient := client.New(client.Options{
-			BaseURL: "https://api.tidesandcurrents.noaa.gov",
-			Timeout: 30 * time.Second,
+			Timeout:    10 * time.Second,
+			MaxRetries: 3,
+			BaseURL:    "https://api.tidesandcurrents.noaa.gov",
 		})
-
-		// Initialize station finder
 		stationFinder := station.NewNOAAStationFinder(httpClient, nil)
 
-		// Initialize tide service
-		tideService, err = tide.NewService(context.Background(), httpClient, stationFinder)
+		tideService, err = tide.NewService(ctx, httpClient, stationFinder)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to initialize tide service")
-			// Since we're in init, we can't do much more than log the error
+			log.Fatal().Err(err).Msgf("Failed to create tide service: %v", err)
 		}
 	})
 }
@@ -73,26 +71,18 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 	}
 
 	var response *models.ExtendedTideResponse
-	var err error
+	var (
+		err      error
+		lat, lon float64
+	)
 
 	// Check if we're looking up by station ID or coordinates
 	if stationID, ok := params["stationId"]; ok {
 		response, err = tideService.GetCurrentTideForStation(ctx, stationID, startTimeStr, endTimeStr)
-	} else {
-		// Otherwise, look for coordinates
-		lat, lon, err := api.ParseCoordinates(params)
-		if err != nil {
-			var invalidCoordErr api.InvalidCoordinatesError
-			if errors.As(err, &invalidCoordErr) {
-				return api.Error(err.Error(), http.StatusBadRequest)
-			}
-			return api.Error("Invalid parameters", http.StatusBadRequest)
-		}
-
+	} else if lat, lon, err = api.ParseCoordinates(params); err == nil {
 		response, err = tideService.GetCurrentTide(ctx, lat, lon, startTimeStr, endTimeStr)
-		if err != nil {
-			return api.Error("Error getting tide data", http.StatusInternalServerError)
-		}
+	} else {
+		return api.Error("Missing required parameters", http.StatusBadRequest)
 	}
 
 	if err != nil {

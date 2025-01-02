@@ -7,9 +7,7 @@ import (
 	"github.com/bbernstein/flowebb/backend-go/internal/cache"
 	"github.com/bbernstein/flowebb/backend-go/internal/config"
 	"github.com/bbernstein/flowebb/backend-go/internal/models"
-	"github.com/bbernstein/flowebb/backend-go/internal/station"
 	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
-
 	"github.com/rs/zerolog/log"
 	"math"
 	"sort"
@@ -18,26 +16,33 @@ import (
 )
 
 type Service struct {
-	httpClient      *client.Client
-	stationFinder   *station.NOAAStationFinder
-	predictionCache *cache.CacheService
+	HttpClient      *client.Client
+	StationFinder   StationFinder
+	PredictionCache cache.CacheService
 }
 
-func NewService(ctx context.Context, httpClient *client.Client, stationFinder *station.NOAAStationFinder) (*Service, error) {
+func NewService(ctx context.Context, httpClient *client.Client, stationFinder StationFinder) (*Service, error) {
 	cacheService, err := cache.NewCacheService(ctx, config.GetCacheConfig())
 	if err != nil {
 		return nil, fmt.Errorf("creating cache service: %w", err)
 	}
 
 	return &Service{
-		httpClient:      httpClient,
-		stationFinder:   stationFinder,
-		predictionCache: cacheService,
+		HttpClient:      httpClient,
+		StationFinder:   stationFinder,
+		PredictionCache: cacheService,
 	}, nil
 }
 
 func (s *Service) GetCurrentTide(ctx context.Context, lat, lon float64, startTimeStr, endTimeStr *string) (*models.ExtendedTideResponse, error) {
-	stations, err := s.stationFinder.FindNearestStations(ctx, lat, lon, 1)
+	// validate params
+	if lat < -90 || lat > 90 {
+		return nil, fmt.Errorf("invalid latitude: %f", lat)
+	}
+	if lon < -180 || lon > 180 {
+		return nil, fmt.Errorf("invalid longitude: %f", lon)
+	}
+	stations, err := s.StationFinder.FindNearestStations(ctx, lat, lon, 1)
 	if err != nil {
 		return nil, fmt.Errorf("finding nearest station: %w", err)
 	}
@@ -46,11 +51,20 @@ func (s *Service) GetCurrentTide(ctx context.Context, lat, lon float64, startTim
 		return nil, fmt.Errorf("no stations found near coordinates")
 	}
 
-	return s.GetCurrentTideForStation(ctx, stations[0].ID, startTimeStr, endTimeStr)
+	response, err := s.GetCurrentTideForStation(ctx, stations[0].ID, startTimeStr, endTimeStr)
+	if err != nil {
+		return nil, fmt.Errorf("getting current tide: %w", err)
+	}
+
+	if err := response.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid response data: %w", err)
+	}
+
+	return response, nil
 }
 
 func (s *Service) GetCurrentTideForStation(ctx context.Context, stationID string, startTimeStr, endTimeStr *string) (*models.ExtendedTideResponse, error) {
-	localStation, err := s.stationFinder.FindStation(ctx, stationID)
+	localStation, err := s.StationFinder.FindStation(ctx, stationID)
 	if err != nil {
 		return nil, fmt.Errorf("finding localStation: %w", err)
 	}
@@ -173,7 +187,7 @@ func (s *Service) GetCurrentTideForStation(ctx context.Context, stationID string
 	// Format current time in local timezone for response
 	nowStr := now.Format("2006-01-02T15:04:05")
 
-	return &models.ExtendedTideResponse{
+	response := &models.ExtendedTideResponse{
 		ResponseType:          "tide",
 		Timestamp:             nowLocal,
 		LocalTime:             nowStr, // Add local time string
@@ -189,11 +203,17 @@ func (s *Service) GetCurrentTideForStation(ctx context.Context, stationID string
 		Extremes:              filteredExtremes,
 		Predictions:           filteredPredictions,
 		TimeZoneOffsetSeconds: &localStation.TimeZoneOffset,
-	}, nil
+	}
+
+	if err := response.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid response data: %w", err)
+	}
+
+	return response, nil
 }
 
 func (s *Service) fetchNoaaPredictions(ctx context.Context, stationID, startDate, endDate string, location *time.Location) ([]models.TidePrediction, error) {
-	resp, err := s.httpClient.Get(ctx, fmt.Sprintf("/api/prod/datagetter"+
+	resp, err := s.HttpClient.Get(ctx, fmt.Sprintf("/api/prod/datagetter"+
 		"?station=%s&begin_date=%s&end_date=%s&product=predictions&datum=MLLW"+
 		"&units=english&time_zone=lst_ldt&format=json&interval=6",
 		stationID, startDate, endDate))
@@ -237,7 +257,7 @@ func (s *Service) fetchNoaaPredictions(ctx context.Context, stationID, startDate
 }
 
 func (s *Service) fetchNoaaExtremes(ctx context.Context, stationID, startDate, endDate string, location *time.Location) ([]models.TideExtreme, error) {
-	resp, err := s.httpClient.Get(ctx, fmt.Sprintf("/api/prod/datagetter"+
+	resp, err := s.HttpClient.Get(ctx, fmt.Sprintf("/api/prod/datagetter"+
 		"?station=%s&begin_date=%s&end_date=%s&product=predictions&datum=MLLW"+
 		"&units=english&time_zone=lst_ldt&format=json&interval=hilo",
 		stationID, startDate, endDate))
@@ -352,7 +372,7 @@ func interpolateExtremes(extremes []models.TideExtreme, timestamp int64) float64
 		h01*e2.Height + h11*m2*float64(e2.Timestamp-e1.Timestamp)
 }
 
-func (s *Service) getPredictionsForDateRange(ctx context.Context, station *models.Station, startDate, endDate time.Time, location *time.Location) ([]*cache.TidePredictionRecord, error) {
+func (s *Service) getPredictionsForDateRange(ctx context.Context, station *models.Station, startDate, endDate time.Time, location *time.Location) ([]*models.TidePredictionRecord, error) {
 	// Get list of dates in the range
 	var dates []time.Time
 	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
@@ -360,13 +380,13 @@ func (s *Service) getPredictionsForDateRange(ctx context.Context, station *model
 	}
 
 	// Try to get all dates from cache first
-	var cachedRecords []*cache.TidePredictionRecord
+	var cachedRecords []*models.TidePredictionRecord
 	var missingDates []time.Time
 
 	log.Debug().Times("dates", dates).Msg("Checking cache for predictions on dates")
 
 	for _, date := range dates {
-		record, err := s.predictionCache.GetPredictions(ctx, station.ID, date)
+		record, err := s.PredictionCache.GetPredictions(ctx, station.ID, date)
 		if err != nil {
 			log.Error().Err(err).
 				Str("station_id", station.ID).
@@ -441,10 +461,10 @@ func (s *Service) getPredictionsForDateRange(ctx context.Context, station *model
 	}
 
 	// Create and save cache records for missing dates
-	var newRecords []*cache.TidePredictionRecord
+	var newRecords []*models.TidePredictionRecord
 	for _, date := range missingDates {
 		dateStr := date.Format("2006-01-02")
-		record := &cache.TidePredictionRecord{
+		record := &models.TidePredictionRecord{
 			StationID:   station.ID,
 			Date:        dateStr,
 			StationType: *station.StationType,
@@ -455,13 +475,13 @@ func (s *Service) getPredictionsForDateRange(ctx context.Context, station *model
 	}
 
 	// Save new records to cache asynchronously
-	go func(records []*cache.TidePredictionRecord) {
-		recordsToSave := make([]cache.TidePredictionRecord, len(records))
+	go func(records []*models.TidePredictionRecord) {
+		recordsToSave := make([]models.TidePredictionRecord, len(records))
 		for i, r := range records {
 			recordsToSave[i] = *r
 		}
 
-		if err := s.predictionCache.SavePredictionsBatch(context.Background(), recordsToSave); err != nil {
+		if err := s.PredictionCache.SavePredictionsBatch(context.Background(), recordsToSave); err != nil {
 			log.Error().Err(err).
 				Str("station_id", station.ID).
 				Int("record_count", len(records)).
