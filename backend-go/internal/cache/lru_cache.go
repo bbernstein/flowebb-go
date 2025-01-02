@@ -6,6 +6,7 @@ import (
 	"github.com/bbernstein/flowebb/backend-go/internal/config"
 	"github.com/bbernstein/flowebb/backend-go/internal/models"
 	"github.com/hashicorp/golang-lru/v2"
+	"sync"
 	"time"
 )
 
@@ -36,6 +37,7 @@ type LRUCacheService struct {
 	dynamoCache  *DynamoPredictionCache
 	ttl          time.Duration
 	clock        clock
+	statsMutex   sync.RWMutex
 	lruHits      uint64
 	lruMisses    uint64
 	dynamoHits   uint64
@@ -70,15 +72,16 @@ func getCacheKey(stationID string, date time.Time) string {
 // GetPredictions tries to get predictions first from LRU cache, then from DynamoDB
 func (c *LRUCacheService) GetPredictions(ctx context.Context, stationID string, date time.Time) (*models.TidePredictionRecord, error) {
 	key := getCacheKey(stationID, date)
+
 	// Try LRU cache first
 	if entry, ok := c.lru.Get(key); ok {
 		if c.clock.Now().Before(entry.ExpiresAt) {
-			c.lruHits++
+			c.incrementLRUHits()
 			return entry.Data, nil
 		}
 		c.lru.Remove(key)
 	}
-	c.lruMisses++
+	c.incrementLRUMisses()
 
 	// Try DynamoDB cache
 	record, err := c.dynamoCache.GetPredictions(ctx, stationID, date)
@@ -87,7 +90,7 @@ func (c *LRUCacheService) GetPredictions(ctx context.Context, stationID string, 
 	}
 
 	if record != nil {
-		c.dynamoHits++
+		c.incrementDynamoHits()
 		// Cache hit in DynamoDB, store in LRU cache
 		c.lru.Add(key, &LRUCacheEntry{
 			Data:      record,
@@ -95,7 +98,7 @@ func (c *LRUCacheService) GetPredictions(ctx context.Context, stationID string, 
 		})
 		return record, nil
 	}
-	c.dynamoMisses++
+	c.incrementDynamoMisses()
 
 	return nil, nil
 }
@@ -156,6 +159,9 @@ func (c *LRUCacheService) SavePredictionsBatch(ctx context.Context, records []mo
 
 // GetCacheStats returns statistics about cache hits and misses
 func (c *LRUCacheService) GetCacheStats() map[string]uint64 {
+	c.statsMutex.RLock()
+	defer c.statsMutex.RUnlock()
+
 	return map[string]uint64{
 		"lru_hits":      c.lruHits,
 		"lru_misses":    c.lruMisses,
@@ -167,4 +173,28 @@ func (c *LRUCacheService) GetCacheStats() map[string]uint64 {
 // Clear removes all entries from the LRU cache
 func (c *LRUCacheService) Clear() {
 	c.lru.Purge()
+}
+
+func (c *LRUCacheService) incrementLRUHits() {
+	c.statsMutex.Lock()
+	c.lruHits++
+	c.statsMutex.Unlock()
+}
+
+func (c *LRUCacheService) incrementLRUMisses() {
+	c.statsMutex.Lock()
+	c.lruMisses++
+	c.statsMutex.Unlock()
+}
+
+func (c *LRUCacheService) incrementDynamoHits() {
+	c.statsMutex.Lock()
+	c.dynamoHits++
+	c.statsMutex.Unlock()
+}
+
+func (c *LRUCacheService) incrementDynamoMisses() {
+	c.statsMutex.Lock()
+	c.dynamoMisses++
+	c.statsMutex.Unlock()
 }

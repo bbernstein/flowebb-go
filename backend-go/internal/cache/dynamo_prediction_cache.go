@@ -97,11 +97,6 @@ func (c *DynamoPredictionCache) SavePredictions(ctx context.Context, record mode
 		return fmt.Errorf("putting predictions in DynamoDB: %w", err)
 	}
 
-	log.Debug().
-		Str("station_id", record.StationID).
-		Str("date", record.Date).
-		Msg("Saved predictions to cache")
-
 	return nil
 }
 
