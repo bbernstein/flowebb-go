@@ -427,12 +427,20 @@ func TestCacheIntegration(t *testing.T) {
                     {"t":"%s 00:00","v":"1.0"},
                     {"t":"%s 06:00","v":"2.0"},
                     {"t":"%s 12:00","v":"1.5"},
-                    {"t":"%s 18:00","v":"2.5"}
+                    {"t":"%s 18:00","v":"2.5"},
+                    {"t":"%s 00:00","v":"1.2"},
+                    {"t":"%s 06:00","v":"2.1"},
+                    {"t":"%s 12:00","v":"1.6"},
+                    {"t":"%s 18:00","v":"2.4"}
                 ]}`,
 					nowPacific.Format("2006-01-02"),
 					nowPacific.Format("2006-01-02"),
 					nowPacific.Format("2006-01-02"),
-					nowPacific.Format("2006-01-02"))
+					nowPacific.Format("2006-01-02"),
+					nowPacific.Add(24*time.Hour).Format("2006-01-02"),
+					nowPacific.Add(24*time.Hour).Format("2006-01-02"),
+					nowPacific.Add(24*time.Hour).Format("2006-01-02"),
+					nowPacific.Add(24*time.Hour).Format("2006-01-02"))
 				t.Logf("NOAA API Response (predictions): %s", response)
 				_, _ = fmt.Fprint(w, response)
 			}
@@ -443,12 +451,20 @@ func TestCacheIntegration(t *testing.T) {
                     {"t":"%s 00:00","v":"1.0","type":"H"},
                     {"t":"%s 06:00","v":"0.5","type":"L"},
                     {"t":"%s 12:00","v":"2.0","type":"H"},
-                    {"t":"%s 18:00","v":"0.8","type":"L"}
+                    {"t":"%s 18:00","v":"0.8","type":"L"},
+                    {"t":"%s 00:00","v":"1.1","type":"H"},
+                    {"t":"%s 06:00","v":"0.6","type":"L"},
+                    {"t":"%s 12:00","v":"2.1","type":"H"},
+                    {"t":"%s 18:00","v":"0.7","type":"L"}
                 ]}`,
 					nowPacific.Format("2006-01-02"),
 					nowPacific.Format("2006-01-02"),
 					nowPacific.Format("2006-01-02"),
-					nowPacific.Format("2006-01-02"))
+					nowPacific.Format("2006-01-02"),
+					nowPacific.Add(24*time.Hour).Format("2006-01-02"),
+					nowPacific.Add(24*time.Hour).Format("2006-01-02"),
+					nowPacific.Add(24*time.Hour).Format("2006-01-02"),
+					nowPacific.Add(24*time.Hour).Format("2006-01-02"))
 				t.Logf("NOAA API Response (extremes): %s", response)
 				_, _ = fmt.Fprint(w, response)
 			}

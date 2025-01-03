@@ -103,7 +103,8 @@ func (s *Service) GetCurrentTideForStation(ctx context.Context, stationID string
 			return nil, fmt.Errorf("parsing end time: %w", err)
 		}
 	} else {
-		endTime = startTime.AddDate(0, 0, 1)
+		// don't add an extra day here, we add that to the query below
+		endTime = startTime.AddDate(0, 0, 1).Add(-time.Second)
 	}
 
 	// Validate date range
