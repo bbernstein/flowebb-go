@@ -7,8 +7,8 @@ import (
 
 // models.TidePredictionRecord represents a cached set of predictions for a station and date
 type TidePredictionRecord struct {
-	StationID   string           `dynamodbav:"stationId"`   // Hash key
-	Date        string           `dynamodbav:"date"`        // Range key
+	StationID   string           `dynamodbav:"stationId"`
+	Date        string           `dynamodbav:"date"`
 	StationType string           `dynamodbav:"stationType"` // R for reference, S for subordinate
 	Predictions []TidePrediction `dynamodbav:"predictions"`
 	Extremes    []TideExtreme    `dynamodbav:"extremes"`

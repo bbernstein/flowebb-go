@@ -64,23 +64,24 @@ func NewCacheService(ctx context.Context, config *config.CacheConfig) (*LRUCache
 	}, nil
 }
 
-// getCacheKey generates a unique cache key for a station and date
-func getCacheKey(stationID string, date time.Time) string {
-	return fmt.Sprintf("%s:%s", stationID, date.Format("2006-01-02"))
+// getCacheKey generates a unique cache key for a station and date string
+func getCacheKey(stationID string, date string) string {
+	return fmt.Sprintf("%s:%s", stationID, date)
 }
 
 // GetPredictions tries to get predictions first from LRU cache, then from DynamoDB
 func (c *LRUCacheService) GetPredictions(ctx context.Context, stationID string, date time.Time) (*models.TidePredictionRecord, error) {
-	key := getCacheKey(stationID, date)
-
-	// Try LRU cache first
+	// Try LRU cache
+	key := getCacheKey(stationID, date.Format("2006-01-02"))
 	if entry, ok := c.lru.Get(key); ok {
-		if c.clock.Now().Before(entry.ExpiresAt) {
+		if entry.ExpiresAt.After(c.clock.Now()) {
 			c.incrementLRUHits()
 			return entry.Data, nil
+		} else {
+			c.lru.Remove(key)
 		}
-		c.lru.Remove(key)
 	}
+
 	c.incrementLRUMisses()
 
 	// Try DynamoDB cache
@@ -91,11 +92,10 @@ func (c *LRUCacheService) GetPredictions(ctx context.Context, stationID string, 
 
 	if record != nil {
 		c.incrementDynamoHits()
-		// Cache hit in DynamoDB, store in LRU cache
-		c.lru.Add(key, &LRUCacheEntry{
-			Data:      record,
-			ExpiresAt: time.Now().Add(c.ttl),
-		})
+		// Save to LRU cache
+		if err := c.SavePredictions(ctx, *record); err != nil {
+			return nil, fmt.Errorf("saving predictions to LRU cache: %w", err)
+		}
 		return record, nil
 	}
 	c.incrementDynamoMisses()
@@ -108,18 +108,13 @@ func (c *LRUCacheService) SavePredictions(ctx context.Context, record models.Tid
 	if err := record.Validate(); err != nil {
 		return fmt.Errorf("invalid prediction record: %w", err)
 	}
-	// Parse date string to generate cache key
-	date, err := time.Parse("2006-01-02", record.Date)
-	if err != nil {
-		return fmt.Errorf("parsing date: %w", err)
-	}
 
-	key := getCacheKey(record.StationID, date)
+	key := getCacheKey(record.StationID, record.Date)
 
 	// Save to LRU cache
 	c.lru.Add(key, &LRUCacheEntry{
 		Data:      &record,
-		ExpiresAt: c.clock.Now().Add(c.ttl),
+		ExpiresAt: c.clock.Now().Truncate(time.Second).Add(c.ttl),
 	})
 
 	// Save to DynamoDB
@@ -137,15 +132,10 @@ func (c *LRUCacheService) SavePredictionsBatch(ctx context.Context, records []mo
 		// Create a copy of the record
 		recordCopy := record // Make a copy of the record
 
-		date, err := time.Parse("2006-01-02", record.Date)
-		if err != nil {
-			return fmt.Errorf("parsing date: %w", err)
-		}
-
-		key := getCacheKey(record.StationID, date)
+		key := getCacheKey(recordCopy.StationID, recordCopy.Date)
 		c.lru.Add(key, &LRUCacheEntry{
 			Data:      &recordCopy,
-			ExpiresAt: time.Now().Add(c.ttl),
+			ExpiresAt: c.clock.Now().Truncate(time.Second).Add(c.ttl),
 		})
 	}
 

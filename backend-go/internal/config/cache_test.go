@@ -1,15 +1,81 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
+var envMutex sync.Mutex
+
+// TestGetCacheConfig runs serially to handle environment variables
 func TestGetCacheConfig(t *testing.T) {
-	t.Parallel()
+	// Disable parallelism for this test group
+	if testing.Short() {
+		t.Skip("skipping environment-dependent test in short mode")
+	}
+
+	// Helper functions to handle environment variable operations
+	setEnv := func(key, value string) error {
+		if err := os.Setenv(key, value); err != nil {
+			return fmt.Errorf("setting environment variable %s: %w", key, err)
+		}
+		return nil
+	}
+
+	unsetEnv := func(key string) error {
+		if err := os.Unsetenv(key); err != nil {
+			return fmt.Errorf("unsetting environment variable %s: %w", key, err)
+		}
+		return nil
+	}
+
+	// Save original environment
+	envMutex.Lock()
+	originalEnv := make(map[string]string)
+	envVars := []string{
+		"CACHE_LRU_SIZE",
+		"CACHE_LRU_TTL_MINUTES",
+		"CACHE_DYNAMO_TTL_DAYS",
+		"CACHE_STATION_LIST_TTL_DAYS",
+		"CACHE_BATCH_SIZE",
+		"CACHE_MAX_BATCH_RETRIES",
+		"CACHE_ENABLE_LRU",
+		"CACHE_ENABLE_DYNAMO",
+	}
+
+	for _, k := range envVars {
+		originalEnv[k] = os.Getenv(k)
+	}
+
+	// Clear environment for test
+	for _, k := range envVars {
+		if err := unsetEnv(k); err != nil {
+			t.Fatalf("Failed to clear environment: %v", err)
+		}
+	}
+	envMutex.Unlock()
+
+	// Restore environment after test
+	defer func() {
+		envMutex.Lock()
+		for k, v := range originalEnv {
+			if v != "" {
+				if err := setEnv(k, v); err != nil {
+					t.Errorf("Failed to restore environment variable %s: %v", k, err)
+				}
+			} else {
+				if err := unsetEnv(k); err != nil {
+					t.Errorf("Failed to restore environment variable %s: %v", k, err)
+				}
+			}
+		}
+		envMutex.Unlock()
+	}()
 
 	tests := []struct {
 		name          string
@@ -48,62 +114,52 @@ func TestGetCacheConfig(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt // capture range variable
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			// Save original environment
-			origEnv := make(map[string]string)
-			for k := range tt.envVars {
-				origEnv[k] = os.Getenv(k)
-			}
-
-			// Clear all relevant environment variables
-			envVars := []string{
-				"CACHE_LRU_SIZE",
-				"CACHE_LRU_TTL_MINUTES",
-				"CACHE_DYNAMO_TTL_DAYS",
-				"CACHE_STATION_LIST_TTL_DAYS",
-				"CACHE_BATCH_SIZE",
-				"CACHE_MAX_BATCH_RETRIES",
-				"CACHE_ENABLE_LRU",
-				"CACHE_ENABLE_DYNAMO",
-			}
-			for _, k := range envVars {
-				err := os.Unsetenv(k)
-				if err != nil {
-					return
-				}
-			}
-
 			// Set test environment
+			envMutex.Lock()
 			for k, v := range tt.envVars {
-				err := os.Setenv(k, v)
-				if err != nil {
-					return
+				if err := setEnv(k, v); err != nil {
+					t.Fatalf("Failed to set test environment: %v", err)
 				}
 			}
-
-			// Restore environment after test
-			defer func() {
-				for k, v := range origEnv {
-					err := os.Setenv(k, v)
-					if err != nil {
-						return
-					}
-				}
-			}()
+			envMutex.Unlock()
 
 			config := GetCacheConfig()
 
 			assert.Equal(t, tt.wantLRUSize, config.LRUSize)
 			assert.Equal(t, tt.wantTTL, config.GetLRUTTL())
 			assert.Equal(t, tt.wantEnableLRU, config.EnableLRUCache)
+
+			// Clear test environment
+			envMutex.Lock()
+			for k := range tt.envVars {
+				if err := unsetEnv(k); err != nil {
+					t.Fatalf("Failed to clear test environment: %v", err)
+				}
+			}
+			envMutex.Unlock()
 		})
 	}
 }
 
+// TestEnvironmentOverrides tests environment variable overrides
 func TestEnvironmentOverrides(t *testing.T) {
+	// Helper functions to handle environment variable operations
+	setEnv := func(key, value string) error {
+		if err := os.Setenv(key, value); err != nil {
+			return fmt.Errorf("setting environment variable %s: %w", key, err)
+		}
+		return nil
+	}
+
+	unsetEnv := func(key string) error {
+		if err := os.Unsetenv(key); err != nil {
+			return fmt.Errorf("unsetting environment variable %s: %w", key, err)
+		}
+		return nil
+	}
+
+	// Don't run parallel at the top level
 	tests := []struct {
 		name    string
 		envVars map[string]string
@@ -141,42 +197,9 @@ func TestEnvironmentOverrides(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Save original environment
-			origEnv := make(map[string]string)
-			for k := range tt.envVars {
-				origEnv[k] = os.Getenv(k)
-			}
-
-			// Set test environment
-			for k, v := range tt.envVars {
-				err := os.Setenv(k, v)
-				if err != nil {
-					return
-				}
-			}
-
-			// Restore environment after test
-			defer func() {
-				for k, v := range origEnv {
-					err := os.Setenv(k, v)
-					if err != nil {
-						return
-					}
-				}
-			}()
-
-			config := GetCacheConfig()
-			tt.check(t, config)
-		})
-	}
-}
-
-func TestDefaultValues(t *testing.T) {
-	t.Parallel()
-
-	// Clear all relevant environment variables
+	// Save all original env vars
+	envMutex.Lock()
+	originalEnv := make(map[string]string)
 	envVars := []string{
 		"CACHE_LRU_SIZE",
 		"CACHE_LRU_TTL_MINUTES",
@@ -187,26 +210,58 @@ func TestDefaultValues(t *testing.T) {
 		"CACHE_ENABLE_LRU",
 		"CACHE_ENABLE_DYNAMO",
 	}
-
-	// Save original environment
-	origEnv := make(map[string]string)
 	for _, k := range envVars {
-		origEnv[k] = os.Getenv(k)
-		err := os.Unsetenv(k)
-		if err != nil {
-			return
+		originalEnv[k] = os.Getenv(k)
+		if err := unsetEnv(k); err != nil {
+			t.Fatalf("Failed to clear environment: %v", err)
 		}
 	}
+	envMutex.Unlock()
 
-	// Restore environment after test
+	// Restore all env vars after tests complete
 	defer func() {
-		for k, v := range origEnv {
-			err := os.Setenv(k, v)
-			if err != nil {
-				return
+		envMutex.Lock()
+		for k, v := range originalEnv {
+			if v != "" {
+				if err := setEnv(k, v); err != nil {
+					t.Errorf("Failed to restore environment variable %s: %v", k, err)
+				}
+			} else {
+				if err := unsetEnv(k); err != nil {
+					t.Errorf("Failed to restore environment variable %s: %v", k, err)
+				}
 			}
 		}
+		envMutex.Unlock()
 	}()
+
+	for _, tt := range tests {
+		tt := tt // capture range variable
+		t.Run(tt.name, func(t *testing.T) {
+			// Clear all env vars before setting test-specific ones
+			envMutex.Lock()
+			for _, k := range envVars {
+				if err := unsetEnv(k); err != nil {
+					t.Fatalf("Failed to clear environment: %v", err)
+				}
+			}
+			// Set only the test-specific env vars
+			for k, v := range tt.envVars {
+				if err := setEnv(k, v); err != nil {
+					t.Fatalf("Failed to set test environment: %v", err)
+				}
+			}
+			envMutex.Unlock()
+
+			config := GetCacheConfig()
+			tt.check(t, config)
+		})
+	}
+}
+
+// TestDefaultValues can run in parallel since it doesn't modify environment
+func TestDefaultValues(t *testing.T) {
+	t.Parallel()
 
 	config := GetCacheConfig()
 
@@ -224,11 +279,4 @@ func TestDefaultValues(t *testing.T) {
 	assert.Equal(t, time.Duration(defaultLRUTTLMinutes)*time.Minute, config.GetLRUTTL())
 	assert.Equal(t, time.Duration(defaultDynamoTTLDays)*24*time.Hour, config.GetDynamoTTL())
 	assert.Equal(t, time.Duration(defaultStationListTTLDays)*24*time.Hour, config.GetStationListTTL())
-}
-
-// Benchmark configuration loading
-func BenchmarkGetCacheConfig(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		_ = GetCacheConfig()
-	}
 }

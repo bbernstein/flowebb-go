@@ -4,22 +4,39 @@ import (
 	"context"
 	"errors"
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/bbernstein/flowebb/backend-go/internal/cache"
 	"github.com/bbernstein/flowebb/backend-go/internal/models"
 	"github.com/bbernstein/flowebb/backend-go/internal/tide"
 	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
 	"net/http"
 	"testing"
+	"time"
 )
+
+// in cmd/tides/main_test.go
+
+type mockCacheService struct{}
+
+func (m *mockCacheService) GetPredictions(_ context.Context, stationID string, date time.Time) (*models.TidePredictionRecord, error) {
+	return &models.TidePredictionRecord{
+		StationID:   stationID,
+		Date:        date.Format("2006-01-02"),
+		Predictions: []models.TidePrediction{},
+		Extremes:    []models.TideExtreme{},
+	}, nil
+}
+
+func (m *mockCacheService) SavePredictionsBatch(_ context.Context, _ []models.TidePredictionRecord) error {
+	return nil
+}
 
 // Define the error that would normally come from the station package
 var ErrStationNotFound = errors.New("station not found")
 
 func newMockTideService() *tide.Service {
 	return &tide.Service{
-		HttpClient:      &client.Client{},            // Mock or real HTTP client
-		StationFinder:   &mockStationFinder{},        // Mock station finder
-		PredictionCache: cache.NewMockCacheService(), // Mock cache service
+		HttpClient:      &client.Client{},     // Mock or real HTTP client
+		StationFinder:   &mockStationFinder{}, // Mock station finder
+		PredictionCache: &mockCacheService{},  // Mock cache service
 	}
 }
 
