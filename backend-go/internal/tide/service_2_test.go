@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/bbernstein/flowebb/backend-go/internal/models"
 	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
@@ -405,6 +406,7 @@ func TestCacheIntegration(t *testing.T) {
 	// Convert to Pacific time for the test (UTC-8)
 	location := time.FixedZone("PST", -8*60*60)
 	nowPacific := now.In(location)
+	today := nowPacific.Format("20060102") // Format date as NOAA API
 
 	// Create a WaitGroup to synchronize cache operations
 	var wg sync.WaitGroup
@@ -415,57 +417,35 @@ func TestCacheIntegration(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/prod/datagetter" {
 			beginDate := r.URL.Query().Get("begin_date")
-			endDate := r.URL.Query().Get("end_date")
-			interval := r.URL.Query().Get("interval")
-
-			t.Logf("NOAA API Request - begin_date: %s, end_date: %s, interval: %s",
-				beginDate, endDate, interval)
+			require.Equal(t, today, beginDate, "Begin date should match today")
 
 			// Mock response for predictions
-			if interval == "6" {
+			if r.URL.Query().Get("interval") == "6" {
 				response := fmt.Sprintf(`{"predictions":[
                     {"t":"%s 00:00","v":"1.0"},
                     {"t":"%s 06:00","v":"2.0"},
                     {"t":"%s 12:00","v":"1.5"},
-                    {"t":"%s 18:00","v":"2.5"},
-                    {"t":"%s 00:00","v":"1.2"},
-                    {"t":"%s 06:00","v":"2.1"},
-                    {"t":"%s 12:00","v":"1.6"},
-                    {"t":"%s 18:00","v":"2.4"}
+                    {"t":"%s 18:00","v":"2.5"}
                 ]}`,
 					nowPacific.Format("2006-01-02"),
 					nowPacific.Format("2006-01-02"),
 					nowPacific.Format("2006-01-02"),
-					nowPacific.Format("2006-01-02"),
-					nowPacific.Add(24*time.Hour).Format("2006-01-02"),
-					nowPacific.Add(24*time.Hour).Format("2006-01-02"),
-					nowPacific.Add(24*time.Hour).Format("2006-01-02"),
-					nowPacific.Add(24*time.Hour).Format("2006-01-02"))
-				t.Logf("NOAA API Response (predictions): %s", response)
+					nowPacific.Format("2006-01-02"))
 				_, _ = fmt.Fprint(w, response)
 			}
 
 			// Mock response for extremes
-			if interval == "hilo" {
+			if r.URL.Query().Get("interval") == "hilo" {
 				response := fmt.Sprintf(`{"predictions":[
                     {"t":"%s 00:00","v":"1.0","type":"H"},
                     {"t":"%s 06:00","v":"0.5","type":"L"},
                     {"t":"%s 12:00","v":"2.0","type":"H"},
-                    {"t":"%s 18:00","v":"0.8","type":"L"},
-                    {"t":"%s 00:00","v":"1.1","type":"H"},
-                    {"t":"%s 06:00","v":"0.6","type":"L"},
-                    {"t":"%s 12:00","v":"2.1","type":"H"},
-                    {"t":"%s 18:00","v":"0.7","type":"L"}
+                    {"t":"%s 18:00","v":"0.8","type":"L"}
                 ]}`,
 					nowPacific.Format("2006-01-02"),
 					nowPacific.Format("2006-01-02"),
 					nowPacific.Format("2006-01-02"),
-					nowPacific.Format("2006-01-02"),
-					nowPacific.Add(24*time.Hour).Format("2006-01-02"),
-					nowPacific.Add(24*time.Hour).Format("2006-01-02"),
-					nowPacific.Add(24*time.Hour).Format("2006-01-02"),
-					nowPacific.Add(24*time.Hour).Format("2006-01-02"))
-				t.Logf("NOAA API Response (extremes): %s", response)
+					nowPacific.Format("2006-01-02"))
 				_, _ = fmt.Fprint(w, response)
 			}
 		}
@@ -482,25 +462,27 @@ func TestCacheIntegration(t *testing.T) {
 			getCalled = true
 			getCalledMu.Unlock()
 
+			log.Debug().
+				Time("date", date).
+				Time("nowPacific", nowPacific).
+				Time("tomorrowPacific", nowPacific.Add(24*time.Hour)).
+				Msg("Cache request")
+
+			//date.Equal(nowPacific) || date.Equal(nowPacific.Add(24*time.Hour)
+
 			// Verify the date being requested matches our expected date
 			expectedDate := nowPacific.Format("2006-01-02")
 			actualDate := date.Format("2006-01-02")
 			nextDate := date.Add(24 * time.Hour).Format("2006-01-02")
 			require.GreaterOrEqual(t, actualDate, expectedDate, "Cache request date should be after start date")
 			require.LessOrEqual(t, expectedDate, nextDate, "Cache request date should be before next date")
+
 			return nil, nil // Simulate cache miss
 		},
 		savePredictionsBatchFn: func(ctx context.Context, records []models.TidePredictionRecord) error {
-			wg.Add(1)
-			defer wg.Done()
-
+			defer wg.Done() // Decrement the counter when the goroutine completes
 			savedBatchMu.Lock()
-			t.Logf("Saving predictions batch with %d records", len(records))
-			for i, record := range records {
-				t.Logf("Record %d - StationID: %s, Date: %s, Predictions: %d, Extremes: %d",
-					i, record.StationID, record.Date, len(record.Predictions), len(record.Extremes))
-			}
-			savedBatch = records
+			savedBatch = append(savedBatch, records...)
 			savedBatchMu.Unlock()
 			return nil
 		},
@@ -526,12 +508,15 @@ func TestCacheIntegration(t *testing.T) {
 		PredictionCache: cache,
 	}
 
+	// Add to the WaitGroup before starting the operation
+	wg.Add(1) // We expect one save operations
+
 	// Test getting predictions
 	response, err := service.GetCurrentTideForStation(context.Background(), "TEST001", nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, response)
 
-	// Wait for cache operations to complete
+	// Wait for all save operations to complete
 	wg.Wait()
 
 	// Verify cache was checked first
@@ -539,10 +524,10 @@ func TestCacheIntegration(t *testing.T) {
 	assert.True(t, getCalled, "Cache should have been checked")
 	getCalledMu.Unlock()
 
-	// Verify predictions were fetched from API and cached
 	savedBatchMu.Lock()
-	assert.NotEmpty(t, savedBatch, "Expected predictions to be cached after API fetch")
-	if len(savedBatch) > 0 {
+	require.NotNil(t, savedBatch, "Expected predictions to be cached after API fetch")
+	require.Len(t, savedBatch, 2, "Expected two days of predictions")
+	{
 		assert.Equal(t, "TEST001", savedBatch[0].StationID)
 		// Verify the cached date matches our test date
 		assert.Equal(t, nowPacific.Format("2006-01-02"), savedBatch[0].Date)
