@@ -22,6 +22,7 @@ const (
 type DynamoPredictionCache struct {
 	client DynamoDBClient
 	config *config.CacheConfig
+	clock  clock
 }
 
 func NewDynamoPredictionCache(client DynamoDBClient, cacheConfig *config.CacheConfig) *DynamoPredictionCache {
@@ -31,6 +32,7 @@ func NewDynamoPredictionCache(client DynamoDBClient, cacheConfig *config.CacheCo
 	return &DynamoPredictionCache{
 		client: client,
 		config: cacheConfig,
+		clock:  &systemClock{},
 	}
 }
 
@@ -79,7 +81,7 @@ func (c *DynamoPredictionCache) SavePredictions(ctx context.Context, record mode
 		return fmt.Errorf("invalid prediction record: %w", err)
 	}
 
-	now := time.Now().Unix()
+	now := c.clock.Now().Unix()
 	record.LastUpdated = now
 	record.TTL = now + (cacheValidityDays * 24 * 60 * 60)
 
@@ -121,7 +123,7 @@ func (c *DynamoPredictionCache) SavePredictionsBatch(ctx context.Context, record
 		var writeRequests []types.WriteRequest
 
 		for _, record := range batch {
-			now := time.Now().Unix()
+			now := c.clock.Now().Unix()
 			record.LastUpdated = now
 			// Use configured TTL
 			record.TTL = now + int64(c.config.GetDynamoTTL().Seconds())
@@ -166,6 +168,6 @@ func (c *DynamoPredictionCache) SavePredictionsBatch(ctx context.Context, record
 }
 
 func (c *DynamoPredictionCache) isValid(record models.TidePredictionRecord) bool {
-	now := time.Now().Unix()
+	now := c.clock.Now().Unix()
 	return now < record.TTL
 }

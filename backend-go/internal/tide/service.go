@@ -22,6 +22,13 @@ type Service struct {
 }
 
 func NewService(ctx context.Context, httpClient *client.Client, stationFinder StationFinder) (*Service, error) {
+	if httpClient == nil {
+		return nil, fmt.Errorf("http client is required")
+	}
+	if stationFinder == nil {
+		return nil, fmt.Errorf("station finder is required")
+	}
+
 	cacheService, err := cache.NewCacheService(ctx, config.GetCacheConfig())
 	if err != nil {
 		return nil, fmt.Errorf("creating cache service: %w", err)

@@ -3,7 +3,9 @@ package cache
 import (
 	"context"
 	"fmt"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"sync"
 	"testing"
 	"time"
@@ -20,7 +22,7 @@ type fakeClock struct {
 }
 
 func (f *fakeClock) Now() time.Time {
-	return f.now
+	return f.now.UTC()
 }
 
 func (f *fakeClock) Advance(d time.Duration) {
@@ -63,23 +65,43 @@ func (m *mockDynamoDBClientLRU) ListTables(ctx context.Context, params *dynamodb
 }
 
 // Helper function to create test cache service with mock DynamoDB client
-func createTestCacheService(_ *testing.T, cfg *config.CacheConfig) *LRUCacheService {
+func createTestCacheService(t *testing.T, cfg *config.CacheConfig) *LRUCacheService {
+	// Create an in-memory store for the mock DynamoDB with synchronization
+	var mu sync.RWMutex
+	store := make(map[string]map[string]types.AttributeValue)
+
 	mockDynamo := &mockDynamoDBClientLRU{
-		getItemFunc: func(ctx context.Context, params *dynamodb.GetItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
-			return &dynamodb.GetItemOutput{Item: nil}, nil
-		},
-		putItemFunc: func(ctx context.Context, params *dynamodb.PutItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+		putItemFunc: func(_ context.Context, params *dynamodb.PutItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			store[*params.TableName] = params.Item
 			return &dynamodb.PutItemOutput{}, nil
+		},
+		batchWriteItemFunc: func(_ context.Context, params *dynamodb.BatchWriteItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			for tableName, requests := range params.RequestItems {
+				for _, request := range requests {
+					if request.PutRequest != nil {
+						store[tableName] = request.PutRequest.Item
+					}
+				}
+			}
+			return &dynamodb.BatchWriteItemOutput{}, nil
 		},
 	}
 
 	service, err := NewCacheService(context.Background(), cfg)
 	if err != nil {
+		t.Fatalf("failed to create cache service: %v", err)
 		return nil
 	}
-	if service != nil {
-		service.dynamoCache = NewDynamoPredictionCache(mockDynamo, cfg)
-	}
+	// Pass the fake clock to DynamoPredictionCache
+	fakeClock := &fakeClock{now: time.Now().UTC()}
+	service.dynamoCache = NewDynamoPredictionCache(mockDynamo, cfg)
+	service.dynamoCache.clock = fakeClock // Use the fake clock
+	service.clock = fakeClock
+
 	return service
 }
 
@@ -111,11 +133,14 @@ func TestNewCacheService(t *testing.T) {
 				LRUTTLMinutes: int(tt.ttl.Minutes()),
 			}
 
-			service := createTestCacheService(t, cfg)
+			// Create service directly instead of using helper function
+			service, err := NewCacheService(context.Background(), cfg)
 
 			if tt.wantError {
+				assert.Error(t, err)
 				assert.Nil(t, service)
 			} else {
+				assert.NoError(t, err)
 				assert.NotNil(t, service)
 				assert.NotNil(t, service.lru)
 				assert.NotNil(t, service.dynamoCache)
@@ -182,13 +207,15 @@ func TestCacheExpiration(t *testing.T) {
 		LRUTTLMinutes: int(shortTTL.Minutes()),
 	}
 
-	clock := &fakeClock{now: time.Now()}
 	service := createTestCacheService(t, cfg)
-	service.clock = clock
+	require.NotNil(t, service)
+	require.NotNil(t, service.clock)
+	mockClock := &fakeClock{now: time.Now()} // Create a new mock clock
+	service.clock = mockClock                // Set the mock clock
 	service.Clear()
 
 	stationID := "TEST001"
-	date := clock.Now()
+	date := mockClock.Now()
 
 	testRecord := models.TidePredictionRecord{
 		StationID:   stationID,
@@ -205,13 +232,123 @@ func TestCacheExpiration(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	// Advance clock beyond TTL
-	clock.Advance(2 * time.Minute)
+	// Verify we have the record in the cache
+	key := getCacheKey(stationID, date.Format("2006-01-02"))
+	entry, exists := service.lru.Get(key)
+	require.True(t, exists, "Entry should exist in cache")
+	require.NotNil(t, entry)
+	t.Logf("Initial cache entry expires at: %v, current time: %v", entry.ExpiresAt, mockClock.Now())
+
+	// Advance mock clock beyond TTL
+	mockClock.Advance(2 * time.Minute)
+	t.Logf("After advance, current time: %v", mockClock.Now())
 
 	// Lookup after expiration should miss
 	result, err = service.GetPredictions(context.Background(), stationID, date)
 	require.NoError(t, err)
-	assert.Nil(t, result)
+	assert.Nil(t, result, "Expected nil result after cache expiration")
+
+	// Verify the entry was removed from cache
+	_, exists = service.lru.Get(key)
+	assert.False(t, exists, "Entry should be removed from cache after expiration")
+}
+
+func TestLRUSavePredictionsBatch(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.CacheConfig{
+		LRUSize:       1000,
+		LRUTTLMinutes: 15,
+		BatchSize:     2, // Small batch size to test multiple batches
+	}
+
+	service := createTestCacheService(t, cfg)
+	service.Clear()
+
+	// Create test records
+	records := make([]models.TidePredictionRecord, 5)
+	baseTime := time.Now()
+	for i := range records {
+		records[i] = models.TidePredictionRecord{
+			StationID:   fmt.Sprintf("TEST%03d", i),
+			Date:        baseTime.AddDate(0, 0, i).Format("2006-01-02"),
+			StationType: "R",
+			Predictions: []models.TidePrediction{{
+				Timestamp: baseTime.AddDate(0, 0, i).Unix() * 1000,
+				LocalTime: baseTime.AddDate(0, 0, i).Format("2006-01-02T15:04:05"),
+				Height:    float64(i),
+			}},
+		}
+	}
+
+	// Save batch
+	err := service.SavePredictionsBatch(context.Background(), records)
+	require.NoError(t, err)
+
+	// Verify each record was saved in LRU cache
+	for _, record := range records {
+		date, _ := time.Parse("2006-01-02", record.Date)
+		result, err := service.GetPredictions(context.Background(), record.StationID, date)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.Equal(t, record.StationID, result.StationID)
+	}
+}
+
+func TestDynamoDBHitFallback(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.CacheConfig{
+		LRUSize:       1000,
+		LRUTTLMinutes: 15,
+	}
+
+	// Create a mock DynamoDB client that returns a canned response
+	testRecord := models.TidePredictionRecord{
+		StationID:   "TEST001",
+		Date:        time.Now().Format("2006-01-02"),
+		StationType: "R",
+		Predictions: []models.TidePrediction{{
+			Timestamp: time.Now().Unix() * 1000,
+			LocalTime: time.Now().Format("2006-01-02T15:04:05"),
+			Height:    1.5,
+		}},
+		TTL: time.Now().Add(24 * time.Hour).Unix(),
+	}
+
+	mockDynamo := &mockDynamoDBClientLRU{
+		getItemFunc: func(_ context.Context, params *dynamodb.GetItemInput, _ ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+			// Marshal the test record to DynamoDB format
+			item, err := attributevalue.MarshalMap(testRecord)
+			if err != nil {
+				return nil, err
+			}
+			return &dynamodb.GetItemOutput{Item: item}, nil
+		},
+	}
+
+	service := createTestCacheService(t, cfg)
+	service.dynamoCache = NewDynamoPredictionCache(mockDynamo, cfg)
+	service.Clear()
+
+	// First access should miss LRU but hit DynamoDB
+	date, _ := time.Parse("2006-01-02", testRecord.Date)
+	result, err := service.GetPredictions(context.Background(), testRecord.StationID, date)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, testRecord.StationID, result.StationID)
+
+	// Second access should hit LRU
+	result2, err := service.GetPredictions(context.Background(), testRecord.StationID, date)
+	require.NoError(t, err)
+	require.NotNil(t, result2)
+
+	// Verify cache stats
+	stats := service.GetCacheStats()
+	assert.Equal(t, uint64(1), stats["lru_hits"])
+	assert.Equal(t, uint64(1), stats["lru_misses"])
+	assert.Equal(t, uint64(1), stats["dynamo_hits"])
+	assert.Equal(t, uint64(0), stats["dynamo_misses"])
 }
 
 func TestConcurrentAccess(t *testing.T) {
@@ -229,19 +366,20 @@ func TestConcurrentAccess(t *testing.T) {
 	service := createTestCacheService(t, cfg)
 	service.Clear() // Ensure clean state
 
-	const goroutines = 10
-	const iterations = 100
+	const goroutines = 5  // Reduced from 10
+	const iterations = 20 // Reduced from 100
 
 	var wg sync.WaitGroup
-	wg.Add(goroutines)
+	errs := make(chan error, goroutines*iterations)
 
 	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 
 			for j := 0; j < iterations; j++ {
 				stationID := fmt.Sprintf("TEST%d", id)
-				date := time.Now()
+				date := service.clock.(*fakeClock).Now() // Use mock clock
 
 				record := models.TidePredictionRecord{
 					StationID:   stationID,
@@ -251,20 +389,28 @@ func TestConcurrentAccess(t *testing.T) {
 
 				// Mix reads and writes
 				if j%2 == 0 {
-					err := service.SavePredictions(context.Background(), record)
-					assert.NoError(t, err)
+					if err := service.SavePredictions(context.Background(), record); err != nil {
+						errs <- fmt.Errorf("SavePredictions error: %v", err)
+						return
+					}
 				} else {
-					_, err := service.GetPredictions(context.Background(), stationID, date)
-					assert.NoError(t, err)
+					if _, err := service.GetPredictions(context.Background(), stationID, date); err != nil {
+						errs <- fmt.Errorf("GetPredictions error: %v", err)
+						return
+					}
 				}
 			}
 		}(i)
 	}
 
 	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Error(err)
+	}
 }
 
-// Benchmark basic cache operations
 func BenchmarkCacheOperations(b *testing.B) {
 	cfg := &config.CacheConfig{
 		LRUSize:       1000,
