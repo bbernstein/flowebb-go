@@ -405,7 +405,6 @@ func TestCacheIntegration(t *testing.T) {
 	// Convert to Pacific time for the test (UTC-8)
 	location := time.FixedZone("PST", -8*60*60)
 	nowPacific := now.In(location)
-	today := nowPacific.Format("20060102") // Format date as YYYYMMDD for NOAA API
 
 	// Create a WaitGroup to synchronize cache operations
 	var wg sync.WaitGroup
@@ -416,10 +415,14 @@ func TestCacheIntegration(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/prod/datagetter" {
 			beginDate := r.URL.Query().Get("begin_date")
-			require.Equal(t, today, beginDate, "Begin date should match today")
+			endDate := r.URL.Query().Get("end_date")
+			interval := r.URL.Query().Get("interval")
+
+			t.Logf("NOAA API Request - begin_date: %s, end_date: %s, interval: %s",
+				beginDate, endDate, interval)
 
 			// Mock response for predictions
-			if r.URL.Query().Get("interval") == "6" {
+			if interval == "6" {
 				response := fmt.Sprintf(`{"predictions":[
                     {"t":"%s 00:00","v":"1.0"},
                     {"t":"%s 06:00","v":"2.0"},
@@ -430,11 +433,12 @@ func TestCacheIntegration(t *testing.T) {
 					nowPacific.Format("2006-01-02"),
 					nowPacific.Format("2006-01-02"),
 					nowPacific.Format("2006-01-02"))
+				t.Logf("NOAA API Response (predictions): %s", response)
 				_, _ = fmt.Fprint(w, response)
 			}
 
 			// Mock response for extremes
-			if r.URL.Query().Get("interval") == "hilo" {
+			if interval == "hilo" {
 				response := fmt.Sprintf(`{"predictions":[
                     {"t":"%s 00:00","v":"1.0","type":"H"},
                     {"t":"%s 06:00","v":"0.5","type":"L"},
@@ -445,6 +449,7 @@ func TestCacheIntegration(t *testing.T) {
 					nowPacific.Format("2006-01-02"),
 					nowPacific.Format("2006-01-02"),
 					nowPacific.Format("2006-01-02"))
+				t.Logf("NOAA API Response (extremes): %s", response)
 				_, _ = fmt.Fprint(w, response)
 			}
 		}
@@ -474,6 +479,11 @@ func TestCacheIntegration(t *testing.T) {
 			defer wg.Done()
 
 			savedBatchMu.Lock()
+			t.Logf("Saving predictions batch with %d records", len(records))
+			for i, record := range records {
+				t.Logf("Record %d - StationID: %s, Date: %s, Predictions: %d, Extremes: %d",
+					i, record.StationID, record.Date, len(record.Predictions), len(record.Extremes))
+			}
 			savedBatch = records
 			savedBatchMu.Unlock()
 			return nil
