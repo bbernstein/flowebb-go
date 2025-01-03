@@ -400,9 +400,12 @@ func TestTimeZoneHandling(t *testing.T) {
 }
 
 func TestCacheIntegration(t *testing.T) {
-	// Set up a fixed time for the test
-	now := time.Now()
-	today := now.Format("20060102") // Format date as YYYYMMDD for NOAA API
+	// Set up a fixed time for the test in UTC
+	now := time.Now().UTC()
+	// Convert to Pacific time for the test (UTC-8)
+	location := time.FixedZone("PST", -8*60*60)
+	nowPacific := now.In(location)
+	today := nowPacific.Format("20060102") // Format date as YYYYMMDD for NOAA API
 
 	// Create a WaitGroup to synchronize cache operations
 	var wg sync.WaitGroup
@@ -423,10 +426,10 @@ func TestCacheIntegration(t *testing.T) {
                     {"t":"%s 12:00","v":"1.5"},
                     {"t":"%s 18:00","v":"2.5"}
                 ]}`,
-					now.Format("2006-01-02"),
-					now.Format("2006-01-02"),
-					now.Format("2006-01-02"),
-					now.Format("2006-01-02"))
+					nowPacific.Format("2006-01-02"),
+					nowPacific.Format("2006-01-02"),
+					nowPacific.Format("2006-01-02"),
+					nowPacific.Format("2006-01-02"))
 				_, _ = fmt.Fprint(w, response)
 			}
 
@@ -438,10 +441,10 @@ func TestCacheIntegration(t *testing.T) {
                     {"t":"%s 12:00","v":"2.0","type":"H"},
                     {"t":"%s 18:00","v":"0.8","type":"L"}
                 ]}`,
-					now.Format("2006-01-02"),
-					now.Format("2006-01-02"),
-					now.Format("2006-01-02"),
-					now.Format("2006-01-02"))
+					nowPacific.Format("2006-01-02"),
+					nowPacific.Format("2006-01-02"),
+					nowPacific.Format("2006-01-02"),
+					nowPacific.Format("2006-01-02"))
 				_, _ = fmt.Fprint(w, response)
 			}
 		}
@@ -459,7 +462,7 @@ func TestCacheIntegration(t *testing.T) {
 			getCalledMu.Unlock()
 
 			// Verify the date being requested matches our expected date
-			expectedDate := now.Format("2006-01-02")
+			expectedDate := nowPacific.Format("2006-01-02")
 			actualDate := date.Format("2006-01-02")
 			nextDate := date.Add(24 * time.Hour).Format("2006-01-02")
 			require.GreaterOrEqual(t, actualDate, expectedDate, "Cache request date should be after start date")
@@ -477,9 +480,12 @@ func TestCacheIntegration(t *testing.T) {
 		},
 	}
 
+	// Create test station with Pacific timezone
+	station := createTestStation(-8 * 3600) // -8 hours for Pacific Time
+
 	stationFinder := &mockStationFinder2{
 		findStationFn: func(ctx context.Context, stationID string) (*models.Station, error) {
-			return createTestStation(-28800), nil
+			return station, nil
 		},
 	}
 
@@ -513,7 +519,7 @@ func TestCacheIntegration(t *testing.T) {
 	if len(savedBatch) > 0 {
 		assert.Equal(t, "TEST001", savedBatch[0].StationID)
 		// Verify the cached date matches our test date
-		assert.Equal(t, now.Format("2006-01-02"), savedBatch[0].Date)
+		assert.Equal(t, nowPacific.Format("2006-01-02"), savedBatch[0].Date)
 		assert.NotEmpty(t, savedBatch[0].Predictions, "Cached record should contain predictions from API")
 		assert.NotEmpty(t, savedBatch[0].Extremes, "Cached record should contain extremes from API")
 	}
@@ -526,15 +532,16 @@ func TestCacheIntegration(t *testing.T) {
 	assert.NotEmpty(t, response.Extremes)
 
 	// Verify timestamps in predictions and extremes are within expected range
+	expectedDate := nowPacific.Format("2006-01-02")
 	for _, p := range response.Predictions {
-		predTime := time.Unix(p.Timestamp/1000, 0)
-		assert.Equal(t, now.Format("2006-01-02"), predTime.Format("2006-01-02"),
+		predTime := time.Unix(p.Timestamp/1000, 0).In(location)
+		assert.Equal(t, expectedDate, predTime.Format("2006-01-02"),
 			"Prediction timestamp should be on test date")
 	}
 
 	for _, e := range response.Extremes {
-		extremeTime := time.Unix(e.Timestamp/1000, 0)
-		assert.Equal(t, now.Format("2006-01-02"), extremeTime.Format("2006-01-02"),
+		extremeTime := time.Unix(e.Timestamp/1000, 0).In(location)
+		assert.Equal(t, expectedDate, extremeTime.Format("2006-01-02"),
 			"Extreme timestamp should be on test date")
 	}
 }
