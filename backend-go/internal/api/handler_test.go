@@ -157,3 +157,15 @@ func TestParseCoordinates(t *testing.T) {
 		})
 	}
 }
+
+func TestNewStationsResponse(t *testing.T) {
+	stations := []models.Station{
+		{ID: "station1", Name: "Station 1"},
+		{ID: "station2", Name: "Station 2"},
+	}
+
+	response := NewStationsResponse(stations)
+
+	assert.Equal(t, "stations", response.ResponseType)
+	assert.Equal(t, stations, response.Stations)
+}
