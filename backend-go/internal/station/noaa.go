@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/bbernstein/flowebb/backend-go/internal/config"
 	"github.com/bbernstein/flowebb/backend-go/internal/tide"
 	"github.com/rs/zerolog/log"
+	"io"
 	"math"
 	"sort"
 	"strconv"
@@ -19,21 +19,75 @@ import (
 
 type NOAAStationFinder struct {
 	httpClient *client.Client
-	cache      *cache.StationCache
+	memCache   *cache.StationCache
+	s3Cache    cache.StationListCacheProvider
 	cacheMutex sync.RWMutex
 }
 
 var _ tide.StationFinder = (*NOAAStationFinder)(nil)
 
-func NewNOAAStationFinder(httpClient *client.Client, stationCache *cache.StationCache) *NOAAStationFinder {
-	if stationCache == nil {
-		cacheConfig := config.GetCacheConfig()
-		stationCache = cache.NewStationCache(cacheConfig)
+func NewNOAAStationFinder(httpClient *client.Client, memCache *cache.StationCache) (*NOAAStationFinder, error) {
+	if memCache == nil {
+		memCache = cache.NewStationCache(nil) // Use default config
 	}
+
 	return &NOAAStationFinder{
 		httpClient: httpClient,
-		cache:      stationCache,
+		memCache:   memCache,
+	}, nil
+}
+
+func (f *NOAAStationFinder) FindNearestStations(ctx context.Context, lat, lon float64, limit int) ([]models.Station, error) {
+	// Validate coordinates
+	if lat < -90 || lat > 90 {
+		return nil, fmt.Errorf("invalid latitude: %f", lat)
 	}
+	if lon < -180 || lon > 180 {
+		return nil, fmt.Errorf("invalid longitude: %f", lon)
+	}
+
+	// Get all stations
+	stations, err := f.getStationList(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting station list: %w", err)
+	}
+
+	// Calculate distances and sort
+	type stationDistance struct {
+		station  models.Station
+		distance float64
+	}
+
+	stationDistances := make([]stationDistance, len(stations))
+	for i, station := range stations {
+		distance := calculateDistance(lat, lon, station.Latitude, station.Longitude)
+		stationDistances[i] = stationDistance{
+			station:  station,
+			distance: distance,
+		}
+	}
+
+	// Sort by distance
+	sort.Slice(stationDistances, func(i, j int) bool {
+		return stationDistances[i].distance < stationDistances[j].distance
+	})
+
+	// Limit results and convert back to Station slice
+	if limit <= 0 {
+		limit = 5 // Default limit if not specified
+	}
+	if limit > len(stationDistances) {
+		limit = len(stationDistances)
+	}
+
+	result := make([]models.Station, limit)
+	for i := 0; i < limit; i++ {
+		station := stationDistances[i].station
+		station.Distance = stationDistances[i].distance // Add distance to result
+		result[i] = station
+	}
+
+	return result, nil
 }
 
 func (f *NOAAStationFinder) FindStation(ctx context.Context, stationID string) (*models.Station, error) {
@@ -44,10 +98,6 @@ func (f *NOAAStationFinder) FindStation(ctx context.Context, stationID string) (
 
 	for _, station := range stations {
 		if station.ID == stationID {
-			log.Trace().Str("station_id", stationID).Str("stationType", *station.StationType).Msg("FindStation: Found station")
-			if err := station.Validate(); err != nil {
-				return &station, fmt.Errorf("invalid station data: %w", err)
-			}
 			return &station, nil
 		}
 	}
@@ -55,91 +105,47 @@ func (f *NOAAStationFinder) FindStation(ctx context.Context, stationID string) (
 	return nil, fmt.Errorf("station not found: %s", stationID)
 }
 
-func (f *NOAAStationFinder) FindNearestStations(ctx context.Context, lat, lon float64, limit int) ([]models.Station, error) {
-	// validate params
-	if lat < -90 || lat > 90 {
-		return nil, fmt.Errorf("invalid latitude: %f", lat)
-	}
-	if lon < -180 || lon > 180 {
-		return nil, fmt.Errorf("invalid longitude: %f", lon)
-	}
-	if limit <= 0 || limit > 100 {
-		return nil, fmt.Errorf("invalid limit: %d", limit)
-	}
-
-	stations, err := f.getStationList(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting station list: %w", err)
-	}
-
-	// Calculate distances in parallel using worker pool
-	const workerCount = 4
-	work := make(chan models.Station, len(stations))
-	results := make(chan models.Station, len(stations))
-
-	var wg sync.WaitGroup
-	for i := 0; i < workerCount; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for station := range work {
-				station.Distance = calculateDistance(lat, lon, station.Latitude, station.Longitude)
-				results <- station
-			}
-		}()
-	}
-
-	// Send work
-	for _, station := range stations {
-		work <- station
-	}
-	close(work)
-
-	// Wait for workers and close results
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	// Collect and sort results
-	var stationsWithDistance []models.Station
-	for station := range results {
-		log.Trace().Str("station_id", station.ID).Str("stationType", *station.StationType).Msg("FindNearestStations: Collecting")
-		stationsWithDistance = append(stationsWithDistance, station)
-	}
-
-	// Sort by distance and limit results
-	sort.Slice(stationsWithDistance, func(i, j int) bool {
-		return stationsWithDistance[i].Distance < stationsWithDistance[j].Distance
-	})
-
-	if len(stationsWithDistance) > limit {
-		stationsWithDistance = stationsWithDistance[:limit]
-	}
-
-	return stationsWithDistance, nil
-}
-
 func (f *NOAAStationFinder) getStationList(ctx context.Context) ([]models.Station, error) {
-	// Check cache first
+	// Check memory cache first
 	f.cacheMutex.RLock()
-	cachedStations := f.cache.GetStations()
+	stations := f.memCache.GetStations()
 	f.cacheMutex.RUnlock()
 
-	if cachedStations != nil {
-		log.Debug().Msg("Cache HIT for station list")
-		return cachedStations, nil
+	if stations != nil {
+		log.Debug().Msg("Memory cache HIT for station list")
+		return stations, nil
 	}
-	log.Debug().Msg("Cache MISS for station list, calling noaa API")
+
+	// Check S3 cache if available
+	if f.s3Cache != nil {
+		stations, err := f.s3Cache.GetStations(ctx)
+		if err != nil {
+			log.Error().Err(err).Msg("Error getting stations from S3 cache")
+		} else if stations != nil {
+			log.Debug().Msg("S3 cache HIT for station list")
+			// Update memory cache
+			f.cacheMutex.Lock()
+			f.memCache.SetStations(stations)
+			f.cacheMutex.Unlock()
+			return stations, nil
+		}
+	}
+
+	log.Debug().Msg("Cache MISS for station list, fetching from NOAA API")
 
 	// Fetch from NOAA API
 	resp, err := f.httpClient.Get(ctx, "/mdapi/prod/webapi/tidepredstations.json")
 	if err != nil {
 		return nil, fmt.Errorf("fetching stations: %w", err)
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("no response from NOAA API")
+	}
 	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("closing response body: %w", closeErr)
+		if resp.Body != nil {
+			if err := resp.Body.Close(); err != nil {
+				log.Error().Err(err).Msg("Error closing response body")
+			}
 		}
 	}()
 
@@ -157,12 +163,17 @@ func (f *NOAAStationFinder) getStationList(ctx context.Context) ([]models.Statio
 		} `json:"stationList"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&noaaResp); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+
+	if err := json.Unmarshal(body, &noaaResp); err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 
 	// Convert to Station objects
-	stations := make([]models.Station, len(noaaResp.Stations))
+	stations = make([]models.Station, len(noaaResp.Stations))
 	for i, s := range noaaResp.Stations {
 		var level, stationType *string
 		if s.Level != "" {
@@ -187,16 +198,19 @@ func (f *NOAAStationFinder) getStationList(ctx context.Context) ([]models.Statio
 			Level:          level,
 			StationType:    stationType,
 		}
-		if err := stations[i].Validate(); err != nil {
-			return nil, fmt.Errorf("invalid station data: %w", err)
-		}
 	}
 
-	log.Debug().Int("station_count", len(stations)).Msgf("Caching list of %d stations", len(stations))
+	// Save to both caches asynchronously
+	if f.s3Cache != nil {
+		go func() {
+			if err := f.s3Cache.SaveStations(context.Background(), stations); err != nil {
+				log.Error().Err(err).Msg("Failed to save stations to S3 cache")
+			}
+		}()
+	}
 
-	// Update cache
 	f.cacheMutex.Lock()
-	f.cache.SetStations(stations)
+	f.memCache.SetStations(stations)
 	f.cacheMutex.Unlock()
 
 	return stations, nil

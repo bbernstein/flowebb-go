@@ -2,10 +2,9 @@ package cache
 
 import (
 	"github.com/bbernstein/flowebb/backend-go/internal/config"
+	"github.com/bbernstein/flowebb/backend-go/internal/models"
 	"sync"
 	"time"
-
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
 )
 
 type StationCache struct {
@@ -15,8 +14,13 @@ type StationCache struct {
 	ttl         time.Duration
 }
 
-func NewStationCache(config *config.CacheConfig) *StationCache {
-	ttl := config.GetStationListTTL()
+func NewStationCache(cacheConfig *config.CacheConfig) *StationCache {
+	// If no config provided, use default config
+	if cacheConfig == nil {
+		cacheConfig = config.GetCacheConfig()
+	}
+
+	ttl := cacheConfig.GetStationListTTL()
 	return &StationCache{
 		stations:    make([]models.Station, 0),
 		lastUpdated: time.Time{}, // Zero time to ensure first fetch

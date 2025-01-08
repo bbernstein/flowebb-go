@@ -45,7 +45,7 @@ func init() {
 		})
 
 		// Initialize station finder with cache
-		stationFinder := station.NewNOAAStationFinder(httpClient, nil)
+		stationFinder, _ := station.NewNOAAStationFinder(httpClient, nil)
 
 		// Initialize handler
 		stationsHandler = handler.NewStationsHandler(stationFinder)

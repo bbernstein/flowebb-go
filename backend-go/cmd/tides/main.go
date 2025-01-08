@@ -49,7 +49,7 @@ func init() {
 			MaxRetries: 3,
 			BaseURL:    "https://api.tidesandcurrents.noaa.gov",
 		})
-		stationFinder := station.NewNOAAStationFinder(httpClient, nil)
+		stationFinder, _ := station.NewNOAAStationFinder(httpClient, nil)
 
 		tideService, err = tide.NewService(ctx, httpClient, stationFinder)
 		if err != nil {
