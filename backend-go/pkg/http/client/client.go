@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"github.com/rs/zerolog/log"
 	"net/http"
 	"time"
 )
@@ -43,7 +44,7 @@ func (c *Client) Get(ctx context.Context, path string) (*http.Response, error) {
 	} else {
 		fullURL = c.baseURL + path // Otherwise combine them
 	}
-
+	log.Debug().Str("url", fullURL).Msg("GET request")
 	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
 	if err != nil {
 		return nil, err

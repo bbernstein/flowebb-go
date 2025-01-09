@@ -286,6 +286,10 @@ func (s *Service) fetchNoaaExtremes(ctx context.Context, stationID, startDate, e
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 
+	log.Debug().
+		Interface("noaa_predictions", noaaResp.Predictions).
+		Msg("NOAA extremes response decoded")
+
 	extremes := make([]models.TideExtreme, len(noaaResp.Predictions))
 	for i, p := range noaaResp.Predictions {
 		timestamp, err := parseNoaaTime(p.Time, location)
