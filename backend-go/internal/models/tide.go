@@ -61,6 +61,9 @@ type NoaaPrediction struct {
 
 type NoaaResponse struct {
 	Predictions []NoaaPrediction `json:"predictions"`
+	Error       *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
 }
 
 // Validate checks if a TidePrediction's fields are valid

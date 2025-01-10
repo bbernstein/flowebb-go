@@ -279,3 +279,213 @@ func BenchmarkTideResponseValidation(b *testing.B) {
 		_ = response.Validate()
 	}
 }
+
+func TestTideExtreme_Validate(t *testing.T) {
+	tests := []struct {
+		name      string
+		extreme   TideExtreme
+		wantErr   bool
+		errString string
+	}{
+		{
+			name: "invalid negative timestamp",
+			extreme: TideExtreme{
+				Type:      TideTypeHigh,
+				Timestamp: -1,
+				LocalTime: "2024-01-01T00:00:00",
+				Height:    1.5,
+			},
+			wantErr:   true,
+			errString: "invalid timestamp: -1",
+		},
+		{
+			name: "invalid local time format",
+			extreme: TideExtreme{
+				Type:      TideTypeHigh,
+				Timestamp: time.Now().UnixMilli(),
+				LocalTime: "invalid-time-format",
+				Height:    1.5,
+			},
+			wantErr:   true,
+			errString: "invalid local time format",
+		},
+		{
+			name: "local time more than 24 hours from timestamp",
+			extreme: TideExtreme{
+				Type:      TideTypeHigh,
+				Timestamp: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli(),
+				LocalTime: "2024-01-03T00:00:00", // 48 hours difference
+				Height:    1.5,
+			},
+			wantErr:   true,
+			errString: "local time does not match timestamp",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.extreme.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errString)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestTidePrediction_GetTimestamp(t *testing.T) {
+	timestamp := time.Now().UnixMilli()
+	prediction := TidePrediction{
+		Timestamp: timestamp,
+		LocalTime: time.Now().Format("2006-01-02T15:04:05"),
+		Height:    1.5,
+	}
+
+	assert.Equal(t, timestamp, prediction.GetTimestamp())
+}
+
+func TestExtendedTideResponse_Validate_Additional(t *testing.T) {
+	baseTime := time.Now()
+	validPrediction := TidePrediction{
+		Timestamp: baseTime.UnixMilli(),
+		LocalTime: baseTime.Format("2006-01-02T15:04:05"),
+		Height:    1.5,
+	}
+	validExtreme := TideExtreme{
+		Type:      TideTypeHigh,
+		Timestamp: baseTime.UnixMilli(),
+		LocalTime: baseTime.Format("2006-01-02T15:04:05"),
+		Height:    1.5,
+	}
+
+	tests := []struct {
+		name      string
+		response  ExtendedTideResponse
+		wantErr   bool
+		errString string
+	}{
+		{
+			name: "missing nearest station",
+			response: ExtendedTideResponse{
+				Timestamp:  time.Now().UnixMilli(),
+				WaterLevel: &[]float64{1.5}[0],
+			},
+			wantErr:   true,
+			errString: "nearest station is required",
+		},
+		{
+			name: "invalid longitude",
+			response: ExtendedTideResponse{
+				Timestamp:      time.Now().UnixMilli(),
+				NearestStation: "TEST001",
+				Longitude:      181.0,
+			},
+			wantErr:   true,
+			errString: "invalid longitude: 181.000000",
+		},
+		{
+			name: "negative station distance",
+			response: ExtendedTideResponse{
+				Timestamp:       time.Now().UnixMilli(),
+				NearestStation:  "TEST001",
+				Longitude:       -122.3321,
+				StationDistance: -1.0,
+			},
+			wantErr:   true,
+			errString: "invalid station distance: -1.000000",
+		},
+		{
+			name: "invalid tide type",
+			response: ExtendedTideResponse{
+				Timestamp:      time.Now().UnixMilli(),
+				NearestStation: "TEST001",
+				Longitude:      -122.3321,
+				TideType:       &[]TideType{"INVALID"}[0],
+			},
+			wantErr:   true,
+			errString: "invalid tide type: INVALID",
+		},
+		{
+			name: "invalid timezone offset",
+			response: ExtendedTideResponse{
+				Timestamp:             time.Now().UnixMilli(),
+				NearestStation:        "TEST001",
+				Longitude:             -122.3321,
+				TimeZoneOffsetSeconds: &[]int{-50000}[0], // Too negative
+			},
+			wantErr:   true,
+			errString: "invalid timezone offset: -50000",
+		},
+		{
+			name: "invalid prediction in array",
+			response: ExtendedTideResponse{
+				Timestamp:      time.Now().UnixMilli(),
+				NearestStation: "TEST001",
+				Longitude:      -122.3321,
+				Predictions: []TidePrediction{
+					validPrediction,
+					{Timestamp: -1}, // Invalid prediction
+				},
+			},
+			wantErr:   true,
+			errString: "invalid prediction at index 1",
+		},
+		{
+			name: "invalid extreme in array",
+			response: ExtendedTideResponse{
+				Timestamp:      time.Now().UnixMilli(),
+				NearestStation: "TEST001",
+				Longitude:      -122.3321,
+				Extremes: []TideExtreme{
+					validExtreme,
+					{Timestamp: -1}, // Invalid extreme
+				},
+			},
+			wantErr:   true,
+			errString: "invalid extreme at index 1",
+		},
+		{
+			name: "valid response with all fields",
+			response: ExtendedTideResponse{
+				ResponseType:          "tide",
+				Timestamp:             time.Now().UnixMilli(),
+				NearestStation:        "TEST001",
+				Longitude:             -122.3321,
+				Latitude:              47.6062,
+				Predictions:           []TidePrediction{validPrediction},
+				Extremes:              []TideExtreme{validExtreme},
+				TimeZoneOffsetSeconds: &[]int{-28800}[0], // -8 hours
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.response.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errString)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// Add benchmarks for validation
+func BenchmarkTideExtreme_Validate(b *testing.B) {
+	extreme := TideExtreme{
+		Type:      TideTypeHigh,
+		Timestamp: time.Now().UnixMilli(),
+		LocalTime: time.Now().Format("2006-01-02T15:04:05"),
+		Height:    1.5,
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = extreme.Validate()
+	}
+}

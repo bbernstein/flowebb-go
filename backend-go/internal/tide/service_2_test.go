@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -685,4 +686,79 @@ func TestNewService(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFetchNoaaExtremes_ErrorResponse(t *testing.T) {
+	// Create service with mock dependencies
+	stationFinder := &mockStationFinder2{
+		findStationFn: func(ctx context.Context, stationID string) (*models.Station, error) {
+			// Return a test station with some basic data
+			stationType := "R" // Reference station
+			return &models.Station{
+				ID:             "TEST001",
+				Name:           "Test Station",
+				Latitude:       47.6062,
+				Longitude:      -122.3321,
+				TimeZoneOffset: 0,
+				StationType:    &stationType,
+			}, nil
+		},
+	}
+
+	// Create test server that returns 200 status but includes error in response
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/api/prod/datagetter") {
+			errorResponse := `{
+                "error": {
+                    "message": "No data was found. This product may not be offered at this station."
+                }
+            }`
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(errorResponse))
+			return
+		}
+	}))
+	defer srv.Close()
+
+	// Create HTTP client with test server URL
+	httpClient := client.New(client.Options{
+		BaseURL: srv.URL,
+		Timeout: 5 * time.Second,
+	})
+
+	service := &Service{
+		HttpClient:      httpClient,
+		StationFinder:   stationFinder,
+		PredictionCache: &mockStationService2{},
+	}
+
+	// Test fetching extremes
+	location := time.UTC
+	extremes, err := service.fetchNoaaExtremes(
+		context.Background(),
+		"TEST001",
+		"20240101",
+		"20240102",
+		location,
+	)
+
+	// Verify that we get an error and no extremes
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "No data was found")
+	assert.Contains(t, err.Error(), "error response from NOAA API")
+	assert.Nil(t, extremes)
+
+	// Test that the error is properly handled in GetCurrentTideForStation
+	response, err := service.GetCurrentTideForStation(
+		context.Background(),
+		"TEST001",
+		stringPtr("2024-01-01T00:00:00"),
+		stringPtr("2024-01-02T00:00:00"),
+	)
+
+	// Verify that the service continues without extremes
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	assert.Empty(t, response.Extremes)
 }

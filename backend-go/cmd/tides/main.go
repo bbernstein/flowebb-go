@@ -18,6 +18,7 @@ import (
 )
 
 var (
+	lambdaStart = lambda.Start
 	tideService *tide.Service
 	setupOnce   sync.Once
 )
@@ -94,5 +95,5 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 }
 
 func main() {
-	lambda.Start(handleRequest)
+	lambdaStart(handleRequest)
 }

@@ -15,6 +15,7 @@ import (
 )
 
 var (
+	lambdaStart     = lambda.Start // Allow mocking of lambda.Start in tests
 	stationsHandler *handler.StationsHandler
 	setupOnce       sync.Once
 )
@@ -57,5 +58,5 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 }
 
 func main() {
-	lambda.Start(handleRequest)
+	lambdaStart(handleRequest)
 }

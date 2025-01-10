@@ -286,6 +286,10 @@ func (s *Service) fetchNoaaExtremes(ctx context.Context, stationID, startDate, e
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 
+	if noaaResp.Error != nil {
+		return nil, fmt.Errorf("error response from NOAA API: %s", noaaResp.Error.Message)
+	}
+
 	log.Debug().
 		Interface("noaa_predictions", noaaResp.Predictions).
 		Msg("NOAA extremes response decoded")
@@ -455,7 +459,11 @@ func (s *Service) getPredictionsForDateRange(ctx context.Context, station *model
 
 	extremes, err := s.fetchNoaaExtremes(ctx, station.ID, startStr, endStr, location)
 	if err != nil {
-		return nil, err
+		// it's possible there were no extremes for the station
+		log.Warn().Err(err).
+			Str("station-id", station.ID).
+			Msg("Error fetching extremes from NOAA")
+		extremes = nil
 	}
 
 	// Group predictions and extremes by day
@@ -476,12 +484,19 @@ func (s *Service) getPredictionsForDateRange(ctx context.Context, station *model
 	var newRecords []*models.TidePredictionRecord
 	for _, date := range missingDates {
 		dateStr := date.Format("2006-01-02")
+		dayExtremes := extremesByDay[dateStr]
+		if dayExtremes == nil {
+			log.Debug().Str("station_id", station.ID).
+				Str("date", dateStr).
+				Msg("No extremes for date")
+			dayExtremes = make([]models.TideExtreme, 0)
+		}
 		record := &models.TidePredictionRecord{
 			StationID:   station.ID,
 			Date:        dateStr,
 			StationType: *station.StationType,
 			Predictions: predictionsByDay[dateStr],
-			Extremes:    extremesByDay[dateStr],
+			Extremes:    dayExtremes,
 		}
 		newRecords = append(newRecords, record)
 	}

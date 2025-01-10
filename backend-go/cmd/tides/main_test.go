@@ -7,12 +7,14 @@ import (
 	"github.com/bbernstein/flowebb/backend-go/internal/models"
 	"github.com/bbernstein/flowebb/backend-go/internal/tide"
 	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
+	"github.com/stretchr/testify/require"
 	"net/http"
+	"os"
+	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
-
-// in cmd/tides/main_test.go
 
 type mockCacheService struct{}
 
@@ -140,5 +142,83 @@ func TestHandleRequest(t *testing.T) {
 				t.Errorf("expected status code %d but got %d", tc.expectedCode, response.StatusCode)
 			}
 		})
+	}
+}
+
+var (
+	mu sync.Mutex // Protect lambdaStart in tests
+)
+
+func TestLambdaInit(t *testing.T) {
+	// Set required Lambda environment variables
+	originalServerPort := os.Getenv("_LAMBDA_SERVER_PORT")
+	originalRuntimeAPI := os.Getenv("AWS_LAMBDA_RUNTIME_API")
+
+	err := os.Setenv("_LAMBDA_SERVER_PORT", "8080")
+	require.NoError(t, err)
+	err = os.Setenv("AWS_LAMBDA_RUNTIME_API", "localhost")
+	require.NoError(t, err)
+
+	// Cleanup environment after test
+	defer func() {
+		err := os.Setenv("_LAMBDA_SERVER_PORT", originalServerPort)
+		if err != nil {
+			t.Errorf("Failed to restore _LAMBDA_SERVER_PORT: %v", err)
+		}
+		err = os.Setenv("AWS_LAMBDA_RUNTIME_API", originalRuntimeAPI)
+		if err != nil {
+			t.Errorf("Failed to restore AWS_LAMBDA_RUNTIME_API: %v", err)
+		}
+	}()
+
+	// Save original lambda.Start function
+	mu.Lock()
+	originalStartFn := lambdaStart
+	var startCalled bool
+	lambdaStart = func(handler interface{}) {
+		mu.Lock()
+		startCalled = true
+		mu.Unlock()
+
+		// Verify the handler is a function with the correct signature
+		handlerType := reflect.TypeOf(handler)
+		if handlerType.Kind() != reflect.Func {
+			t.Error("Handler is not a function")
+		}
+
+		// Verify the handler has the correct signature
+		contextInterface := reflect.TypeOf((*context.Context)(nil)).Elem()
+		proxyRequest := reflect.TypeOf(events.APIGatewayProxyRequest{})
+		proxyResponse := reflect.TypeOf(events.APIGatewayProxyResponse{})
+		errorInterface := reflect.TypeOf((*error)(nil)).Elem()
+
+		if handlerType.NumIn() != 2 || handlerType.NumOut() != 2 ||
+			!handlerType.In(0).Implements(contextInterface) ||
+			handlerType.In(1) != proxyRequest ||
+			handlerType.Out(0) != proxyResponse ||
+			!handlerType.Out(1).Implements(errorInterface) {
+			t.Error("Handler does not match expected signature")
+		}
+	}
+	mu.Unlock()
+
+	defer func() {
+		mu.Lock()
+		lambdaStart = originalStartFn
+		mu.Unlock()
+	}()
+
+	// Call main() which should trigger our mock lambda.Start
+	go main()
+
+	// Give main() a moment to run
+	time.Sleep(100 * time.Millisecond)
+
+	mu.Lock()
+	wasStartCalled := startCalled
+	mu.Unlock()
+
+	if !wasStartCalled {
+		t.Error("Lambda start was not called")
 	}
 }
