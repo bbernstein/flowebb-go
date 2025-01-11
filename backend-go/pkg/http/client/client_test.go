@@ -2,8 +2,11 @@ package client
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,4 +161,115 @@ func BenchmarkHTTPClient(b *testing.B) {
 			}
 		})
 	})
+}
+
+func TestGetFuncInjection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setupFunc  func() (*Client, context.Context)
+		wantErr    bool
+		errMessage string
+	}{
+		{
+			name: "custom GetFunc returns success",
+			setupFunc: func() (*Client, context.Context) {
+				client := New(Options{})
+				client.GetFunc = func(ctx context.Context, path string) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(strings.NewReader("test response")),
+					}, nil
+				}
+				return client, context.Background()
+			},
+			wantErr: false,
+		},
+		{
+			name: "custom GetFunc returns error",
+			setupFunc: func() (*Client, context.Context) {
+				client := New(Options{})
+				client.GetFunc = func(ctx context.Context, path string) (*http.Response, error) {
+					return nil, errors.New("custom error")
+				}
+				return client, context.Background()
+			},
+			wantErr:    true,
+			errMessage: "custom error",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt // Capture range variable
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, ctx := tt.setupFunc()
+			resp, err := client.Get(ctx, "/test")
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMessage)
+				assert.Nil(t, resp)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, resp, "Response should not be nil")
+			require.NotNil(t, resp.Body, "Response body should not be nil")
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			// Clean up response body
+			defer func(Body io.ReadCloser) {
+				err := Body.Close()
+				if err != nil {
+					t.Errorf("Failed to close response body: %v", err)
+				}
+			}(resp.Body)
+		})
+	}
+}
+
+func TestGetRequestError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		path       string
+		wantErr    bool
+		errMessage string
+	}{
+		{
+			name:       "invalid URL",
+			path:       ":\\invalid", // This will cause NewRequestWithContext to fail
+			wantErr:    true,
+			errMessage: "missing protocol scheme",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt // Capture range variable
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := New(Options{})
+			resp, err := client.Get(context.Background(), tt.path)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMessage)
+				assert.Nil(t, resp)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+
+			// Clean up response body
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+			}
+		})
+	}
 }

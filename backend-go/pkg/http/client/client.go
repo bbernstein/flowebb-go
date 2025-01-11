@@ -17,6 +17,7 @@ type Client struct {
 	baseURL    string
 	httpClient *http.Client
 	maxRetries int
+	GetFunc    func(ctx context.Context, path string) (*http.Response, error)
 }
 
 func New(opts Options) *Client {
@@ -38,6 +39,10 @@ func New(opts Options) *Client {
 }
 
 func (c *Client) Get(ctx context.Context, path string) (*http.Response, error) {
+	if c.GetFunc != nil {
+		return c.GetFunc(ctx, path)
+	}
+
 	var fullURL string
 	if c.baseURL == "" {
 		fullURL = path // If no base URL, treat path as full URL

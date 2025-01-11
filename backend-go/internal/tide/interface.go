@@ -1,4 +1,3 @@
-// internal/tide/interface.go
 package tide
 
 import (

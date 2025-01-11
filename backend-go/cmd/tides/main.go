@@ -18,13 +18,15 @@ import (
 	"time"
 )
 
+// Variables exposed for testing
 var (
-	lambdaStart = lambda.Start
+	lambdaStart = lambda.Start // Allow mocking of lambda.Start in tests
 	tideService *tide.Service
 	setupOnce   sync.Once
 )
 
-func init() {
+// initializeService is exposed for testing
+func initializeService() {
 	setupOnce.Do(func() {
 		// Initialize logger
 		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
@@ -58,6 +60,10 @@ func init() {
 			log.Fatal().Err(err).Msgf("Failed to create tide service: %v", err)
 		}
 	})
+}
+
+func init() {
+	initializeService()
 }
 
 func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
