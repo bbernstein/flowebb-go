@@ -746,7 +746,7 @@ func TestFetchNoaaExtremes_ErrorResponse(t *testing.T) {
 	// Verify that we get an error and no extremes
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "No data was found")
-	assert.Contains(t, err.Error(), "error response from NOAA API")
+	assert.Contains(t, err.Error(), "product may not be offered")
 	assert.Nil(t, extremes)
 
 	// Test that the error is properly handled in GetCurrentTideForStation
@@ -758,7 +758,8 @@ func TestFetchNoaaExtremes_ErrorResponse(t *testing.T) {
 	)
 
 	// Verify that the service continues without extremes
-	require.NoError(t, err)
-	require.NotNil(t, response)
-	assert.Empty(t, response.Extremes)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "No data was found")
+	assert.Contains(t, err.Error(), "product may not be offered")
+	assert.Nil(t, response)
 }

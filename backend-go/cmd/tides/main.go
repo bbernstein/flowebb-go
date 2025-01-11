@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/bbernstein/flowebb/backend-go/internal/api"
@@ -72,10 +73,8 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 	}
 
 	var response *models.ExtendedTideResponse
-	var (
-		err      error
-		lat, lon float64
-	)
+	var err error
+	var lat, lon float64
 
 	// Check if we're looking up by station ID or coordinates
 	if stationID, ok := params["stationId"]; ok {
@@ -87,6 +86,11 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 	}
 
 	if err != nil {
+		var noaaErr *tide.NoaaAPIError
+		if errors.As(err, &noaaErr) {
+			log.Error().Err(err).Msg("Error from NOAA API")
+			return api.Error("Error fetching tide data from upstream service", http.StatusBadGateway)
+		}
 		log.Error().Err(err).Msg("Error getting tide data")
 		return api.Error("Error getting tide data", http.StatusInternalServerError)
 	}

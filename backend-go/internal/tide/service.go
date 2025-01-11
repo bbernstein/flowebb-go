@@ -226,11 +226,11 @@ func (s *Service) fetchNoaaPredictions(ctx context.Context, stationID, startDate
 		"&units=english&time_zone=lst_ldt&format=json&interval=6",
 		stationID, startDate, endDate))
 	if err != nil {
-		return nil, fmt.Errorf("fetching predictions: %w", err)
+		return nil, NewNoaaAPIError("error making HTTP request for predictions", err)
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("closing response body: %w", closeErr)
+			err = NewNoaaAPIError("error closing predictions response body", closeErr)
 		}
 	}()
 
@@ -239,7 +239,11 @@ func (s *Service) fetchNoaaPredictions(ctx context.Context, stationID, startDate
 
 	var noaaResp models.NoaaResponse
 	if err := json.NewDecoder(resp.Body).Decode(&noaaResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
+		return nil, NewNoaaAPIError("error decoding predictions response", err)
+	}
+
+	if noaaResp.Error != nil {
+		return nil, NewNoaaAPIError(noaaResp.Error.Message, nil)
 	}
 
 	predictions := make([]models.TidePrediction, len(noaaResp.Predictions))
@@ -270,11 +274,11 @@ func (s *Service) fetchNoaaExtremes(ctx context.Context, stationID, startDate, e
 		"&units=english&time_zone=lst_ldt&format=json&interval=hilo",
 		stationID, startDate, endDate))
 	if err != nil {
-		return nil, fmt.Errorf("fetching extremes: %w", err)
+		return nil, NewNoaaAPIError("error making HTTP request for extremes", err)
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("closing response body: %w", closeErr)
+			err = NewNoaaAPIError("error closing extremes response body", closeErr)
 		}
 	}()
 
@@ -283,16 +287,12 @@ func (s *Service) fetchNoaaExtremes(ctx context.Context, stationID, startDate, e
 
 	var noaaResp models.NoaaResponse
 	if err := json.NewDecoder(resp.Body).Decode(&noaaResp); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
+		return nil, NewNoaaAPIError("error decoding extremes response", err)
 	}
 
 	if noaaResp.Error != nil {
-		return nil, fmt.Errorf("error response from NOAA API: %s", noaaResp.Error.Message)
+		return nil, NewNoaaAPIError(noaaResp.Error.Message, nil)
 	}
-
-	log.Debug().
-		Interface("noaa_predictions", noaaResp.Predictions).
-		Msg("NOAA extremes response decoded")
 
 	extremes := make([]models.TideExtreme, len(noaaResp.Predictions))
 	for i, p := range noaaResp.Predictions {
@@ -454,7 +454,11 @@ func (s *Service) getPredictionsForDateRange(ctx context.Context, station *model
 
 	predictions, err := s.fetchNoaaPredictions(ctx, station.ID, startStr, endStr, location)
 	if err != nil {
-		return nil, err
+		// don't return error, we can interpolate from extremes instead
+		log.Warn().Err(err).
+			Str("station-id", station.ID).
+			Msg("Error fetching predictions from NOAA")
+		//return nil, err
 	}
 
 	extremes, err := s.fetchNoaaExtremes(ctx, station.ID, startStr, endStr, location)
@@ -463,7 +467,9 @@ func (s *Service) getPredictionsForDateRange(ctx context.Context, station *model
 		log.Warn().Err(err).
 			Str("station-id", station.ID).
 			Msg("Error fetching extremes from NOAA")
-		extremes = nil
+		if len(predictions) == 0 {
+			return nil, err
+		}
 	}
 
 	// Group predictions and extremes by day
