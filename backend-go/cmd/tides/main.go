@@ -93,12 +93,17 @@ func handleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 
 	if err != nil {
 		var noaaErr *tide.NoaaAPIError
+		var rangeErr *tide.InvalidRangeError
 		if errors.As(err, &noaaErr) {
 			log.Error().Err(err).Msg("Error from NOAA API")
-			return api.Error("Error fetching tide data from upstream service", http.StatusBadGateway)
+			return api.Error("Error fetching tide data from upstream service: "+err.Error(), http.StatusBadGateway)
+		} else if errors.As(err, &rangeErr) {
+			log.Error().Err(err).Msg("Invalid range")
+			return api.Error("Invalid range: "+err.Error(), http.StatusBadRequest)
+		} else {
+			log.Error().Err(err).Msg("Error getting tide data")
+			return api.Error("Error getting tide data: "+err.Error(), http.StatusInternalServerError)
 		}
-		log.Error().Err(err).Msg("Error getting tide data")
-		return api.Error("Error getting tide data", http.StatusInternalServerError)
 	}
 
 	return api.Success(response)

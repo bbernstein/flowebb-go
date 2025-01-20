@@ -108,8 +108,9 @@ func (s *Service) GetCurrentTideForStation(ctx context.Context, stationID string
 	}
 
 	// Validate date range
-	if endTime.Sub(startTime) > 5*24*time.Hour {
-		return nil, fmt.Errorf("date range cannot exceed 5 days")
+	daysDataAllowed := time.Duration(30)
+	if endTime.Sub(startTime) > daysDataAllowed*24*time.Hour {
+		return nil, NewInvalidRangeError(fmt.Sprintf("date range cannot exceed %d days", daysDataAllowed))
 	}
 
 	// Calculate query range

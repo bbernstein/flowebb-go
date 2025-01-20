@@ -440,7 +440,7 @@ func TestNoaaAPIErrorHandling(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, "error", responseBody["responseType"])
-			assert.Equal(t, tt.expectedError, responseBody["error"])
+			assert.Contains(t, responseBody["error"], tt.expectedError)
 		})
 	}
 }

@@ -67,7 +67,7 @@ Optional time range parameters:
 - `endDateTime` - End time for predictions (ISO8601 format: "2024-01-02T00:00:00")
 
 Note: If time range is not specified, predictions will be returned for the current day in the station's timezone.
-Maximum time range is 5 days.
+Maximum time range is 30 days.
 
 #### Response
 

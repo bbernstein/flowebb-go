@@ -241,9 +241,9 @@ func TestDateRangeValidation(t *testing.T) {
 		{
 			name:        "range too large",
 			startTime:   stringPtr("2024-01-01T00:00:00"),
-			endTime:     stringPtr("2024-01-07T00:00:00"), // 6 days
+			endTime:     stringPtr("2024-02-01T00:00:00"), // 31 days
 			wantErr:     true,
-			errContains: "date range cannot exceed 5 days",
+			errContains: "date range cannot exceed 30 days",
 		},
 		{
 			name:        "invalid date format",

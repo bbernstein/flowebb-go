@@ -144,9 +144,9 @@ func TestGetCurrentTideForStation_DateRangeValidation(t *testing.T) {
 		{
 			name:       "range too large",
 			startTime:  time.Now().Format("2006-01-02T15:04:05"),
-			endTime:    time.Now().Add(6 * 24 * time.Hour).Format("2006-01-02T15:04:05"),
+			endTime:    time.Now().Add(31 * 24 * time.Hour).Format("2006-01-02T15:04:05"),
 			wantErr:    true,
-			errMessage: "date range cannot exceed 5 days",
+			errMessage: "date range cannot exceed 30 days",
 		},
 		{
 			name:       "invalid start time format",

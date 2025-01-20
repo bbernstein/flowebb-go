@@ -26,3 +26,18 @@ func NewNoaaAPIError(message string, err error) *NoaaAPIError {
 		Err:     err,
 	}
 }
+
+// Error when user requests data for too much data
+type InvalidRangeError struct {
+	Message string
+}
+
+func (e *InvalidRangeError) Error() string {
+	return e.Message
+}
+
+func NewInvalidRangeError(message string) *InvalidRangeError {
+	return &InvalidRangeError{
+		Message: message,
+	}
+}
