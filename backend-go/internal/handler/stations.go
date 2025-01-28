@@ -6,16 +6,15 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/bbernstein/flowebb/backend-go/internal/api"
 	"github.com/bbernstein/flowebb/backend-go/internal/models"
-	"github.com/bbernstein/flowebb/backend-go/internal/station"
 	"net/http"
 	"strconv"
 )
 
 type StationsHandler struct {
-	stationFinder station.StationFinder
+	stationFinder models.StationFinder
 }
 
-func NewStationsHandler(finder station.StationFinder) *StationsHandler {
+func NewStationsHandler(finder models.StationFinder) *StationsHandler {
 	return &StationsHandler{
 		stationFinder: finder,
 	}

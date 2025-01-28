@@ -1,0 +1,49 @@
+directive @goModel(model: String) on OBJECT
+
+type Query @goModel(model: "github.com/bbernstein/flowebb/backend-go/graph.Resolver") {
+    stations(lat: Float, lon: Float, limit: Int): [Station!]!
+    tides(stationId: ID!, startDateTime: String!, endDateTime: String!): TideData!
+}
+
+type Station {
+    id: ID!
+    name: String!
+    state: String
+    region: String
+    distance: Float!
+    latitude: Float!
+    longitude: Float!
+    source: String!
+    capabilities: [String!]!
+    timeZoneOffset: Int!
+}
+
+type TideData {
+    timestamp: Int!
+    localTime: String!
+    waterLevel: Float!
+    predictedLevel: Float!
+    nearestStation: String!
+    location: String
+    latitude: Float!
+    longitude: Float!
+    stationDistance: Float!
+    tideType: String!
+    calculationMethod: String!
+    predictions: [TidePrediction!]!
+    extremes: [TideExtreme!]!
+    timeZoneOffsetSeconds: Int!
+}
+
+type TidePrediction {
+    timestamp: Int!
+    localTime: String!
+    height: Float!
+}
+
+type TideExtreme {
+    type: String!
+    timestamp: Int!
+    localTime: String!
+    height: Float!
+}

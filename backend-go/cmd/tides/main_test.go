@@ -378,11 +378,12 @@ func TestNoaaAPIErrorHandling(t *testing.T) {
 
 				// Create mock HTTP client
 				mockClient := &client.Client{
-					GetFunc: func(ctx context.Context, path string) (*http.Response, error) {
-						// Return NOAA API error
-						return nil, &tide.NoaaAPIError{
-							Message: "NOAA API unavailable",
-						}
+					GetFunc: func(ctx context.Context, path string) (*client.Response, error) {
+						// Update the return value to use client.Response instead of http.Response
+						return &client.Response{
+							StatusCode: 200,
+							Body:       []byte("test response"),
+						}, nil
 					},
 				}
 

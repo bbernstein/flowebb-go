@@ -46,7 +46,7 @@ type LRUCacheService struct {
 
 // NewCacheService creates a new cache service with both LRU and DynamoDB caching
 func NewCacheService(ctx context.Context, config *config.CacheConfig) (*LRUCacheService, error) {
-	lruCache, err := lru.New[string, *LRUCacheEntry](config.LRUSize)
+	lruCache, err := lru.New[string, *LRUCacheEntry](config.TidePredictionLRUSize)
 	if err != nil {
 		return nil, fmt.Errorf("creating LRU cache: %w", err)
 	}
@@ -59,7 +59,7 @@ func NewCacheService(ctx context.Context, config *config.CacheConfig) (*LRUCache
 	return &LRUCacheService{
 		lru:         lruCache,
 		dynamoCache: NewDynamoPredictionCache(dynamoClient, config),
-		ttl:         config.GetLRUTTL(),
+		ttl:         config.GetTidePredictionLRUTTL(),
 		clock:       &systemClock{},
 	}, nil
 }

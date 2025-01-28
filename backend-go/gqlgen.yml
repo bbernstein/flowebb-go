@@ -1,0 +1,13 @@
+schema:
+  - graph/*.graphql
+exec:
+  filename: graph/generated/generated.go
+  package: generated
+model:
+  filename: graph/model/models_gen.go
+  package: model
+resolver:
+  layout: follow-schema
+  dir: graph
+  type: Resolver
+  filename: graph/resolver.go

@@ -11,11 +11,6 @@ type TideService interface {
 	GetCurrentTideForStation(ctx context.Context, stationID string, startTimeStr, endTimeStr *string) (*models.ExtendedTideResponse, error)
 }
 
-type StationFinder interface {
-	FindStation(ctx context.Context, stationID string) (*models.Station, error)
-	FindNearestStations(ctx context.Context, lat, lon float64, limit int) ([]models.Station, error)
-}
-
 type CacheProvider interface {
 	GetPredictions(ctx context.Context, stationID string, date time.Time) (*models.TidePredictionRecord, error)
 	SavePredictions(ctx context.Context, record models.TidePredictionRecord) error

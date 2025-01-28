@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/bbernstein/flowebb/backend-go/internal/models"
-	"github.com/bbernstein/flowebb/backend-go/internal/station"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"testing"
 )
 
-// mockStationFinder implements station.StationFinder interface for testing
+// mockStationFinder implements models.StationFinder interface for testing
 type mockStationFinder struct {
 	findStationFn         func(ctx context.Context, stationID string) (*models.Station, error)
 	findNearestStationsFn func(ctx context.Context, lat, lon float64, limit int) ([]models.Station, error)
@@ -58,7 +57,7 @@ func TestStationsHandler_HandleRequest(t *testing.T) {
 	tests := []struct {
 		name           string
 		request        events.APIGatewayProxyRequest
-		setupMock      func() station.StationFinder
+		setupMock      func() models.StationFinder
 		expectedStatus int
 		expectedBody   string
 		wantErr        bool
@@ -70,7 +69,7 @@ func TestStationsHandler_HandleRequest(t *testing.T) {
 					"stationId": "TEST001",
 				},
 			},
-			setupMock: func() station.StationFinder {
+			setupMock: func() models.StationFinder {
 				return &mockStationFinder{
 					findStationFn: func(ctx context.Context, stationID string) (*models.Station, error) {
 						localStation := createTestStation(stationID)
@@ -90,7 +89,7 @@ func TestStationsHandler_HandleRequest(t *testing.T) {
 					"limit": "2",
 				},
 			},
-			setupMock: func() station.StationFinder {
+			setupMock: func() models.StationFinder {
 				return &mockStationFinder{
 					findNearestStationsFn: func(ctx context.Context, lat, lon float64, limit int) ([]models.Station, error) {
 						return []models.Station{
@@ -204,7 +203,7 @@ func TestStationsHandler_ErrorHandling(t *testing.T) {
 	tests := []struct {
 		name           string
 		request        events.APIGatewayProxyRequest
-		setupMock      func() station.StationFinder
+		setupMock      func() models.StationFinder
 		expectedStatus int
 		expectedError  string
 	}{
@@ -215,7 +214,7 @@ func TestStationsHandler_ErrorHandling(t *testing.T) {
 					"stationId": "NONEXISTENT",
 				},
 			},
-			setupMock: func() station.StationFinder {
+			setupMock: func() models.StationFinder {
 				return &mockStationFinder{
 					findStationFn: func(ctx context.Context, stationID string) (*models.Station, error) {
 						return nil, nil // Simulate station not found
@@ -233,7 +232,7 @@ func TestStationsHandler_ErrorHandling(t *testing.T) {
 					"lon": "-122.3321",
 				},
 			},
-			setupMock: func() station.StationFinder {
+			setupMock: func() models.StationFinder {
 				return &mockStationFinder{
 					findNearestStationsFn: func(ctx context.Context, lat, lon float64, limit int) ([]models.Station, error) {
 						return nil, assert.AnError // Simulate internal error

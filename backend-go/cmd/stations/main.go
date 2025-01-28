@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/bbernstein/flowebb/backend-go/internal/config"
 	"github.com/bbernstein/flowebb/backend-go/internal/handler"
 	"github.com/bbernstein/flowebb/backend-go/internal/station"
 	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
@@ -11,7 +12,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"os"
 	"sync"
-	"time"
 )
 
 var (
@@ -22,6 +22,15 @@ var (
 
 func init() {
 	setupOnce.Do(func() {
+		cfg := config.LoadFromEnv()
+		cfg.InitializeLogging()
+
+		httpClient := client.New(client.Options{
+			Timeout:    cfg.HTTPTimeout,
+			MaxRetries: cfg.MaxRetries,
+			BaseURL:    cfg.NOAABaseURL,
+		})
+
 		// Initialize logger
 		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 		levelStr := os.Getenv("LOG_LEVEL")
@@ -38,12 +47,6 @@ func init() {
 		if env := os.Getenv("ENV"); env == "local" || env == "development" {
 			log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 		}
-
-		// Initialize HTTP client
-		httpClient := client.New(client.Options{
-			BaseURL: "https://api.tidesandcurrents.noaa.gov",
-			Timeout: 30 * time.Second,
-		})
 
 		// Initialize station finder with cache
 		stationFinder, _ := station.NewNOAAStationFinder(httpClient, nil)

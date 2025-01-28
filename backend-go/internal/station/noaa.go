@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/bbernstein/flowebb/backend-go/internal/tide"
 	"github.com/rs/zerolog/log"
-	"io"
 	"math"
 	"sort"
 	"strconv"
@@ -17,6 +15,16 @@ import (
 	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
 )
 
+type FinderFactory interface {
+	NewFinder(httpClient *client.Client, memCache *cache.StationCache) (*NOAAStationFinder, error)
+}
+
+type DefaultFinderFactory struct{}
+
+func (f *DefaultFinderFactory) NewFinder(httpClient *client.Client, memCache *cache.StationCache) (*NOAAStationFinder, error) {
+	return NewNOAAStationFinder(httpClient, memCache)
+}
+
 type NOAAStationFinder struct {
 	httpClient *client.Client
 	memCache   *cache.StationCache
@@ -24,7 +32,7 @@ type NOAAStationFinder struct {
 	cacheMutex sync.RWMutex
 }
 
-var _ tide.StationFinder = (*NOAAStationFinder)(nil)
+var _ models.StationFinder = (*NOAAStationFinder)(nil)
 
 func NewNOAAStationFinder(httpClient *client.Client, memCache *cache.StationCache) (*NOAAStationFinder, error) {
 	if memCache == nil {
@@ -141,13 +149,6 @@ func (f *NOAAStationFinder) getStationList(ctx context.Context) ([]models.Statio
 	if resp == nil {
 		return nil, fmt.Errorf("no response from NOAA API")
 	}
-	defer func() {
-		if resp.Body != nil {
-			if err := resp.Body.Close(); err != nil {
-				log.Error().Err(err).Msg("Error closing response body")
-			}
-		}
-	}()
 
 	var noaaResp struct {
 		Stations []struct {
@@ -163,12 +164,7 @@ func (f *NOAAStationFinder) getStationList(ctx context.Context) ([]models.Statio
 		} `json:"stationList"`
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response body: %w", err)
-	}
-
-	if err := json.Unmarshal(body, &noaaResp); err != nil {
+	if err := json.Unmarshal(resp.Body, &noaaResp); err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 

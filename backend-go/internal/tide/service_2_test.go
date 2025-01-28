@@ -637,20 +637,20 @@ func TestInterpolateExtremes(t *testing.T) {
 func TestNewService(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMocks  func() (*client.Client, StationFinder)
+		setupMocks  func() (*client.Client, models.StationFinder)
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name: "successful creation",
-			setupMocks: func() (*client.Client, StationFinder) {
+			setupMocks: func() (*client.Client, models.StationFinder) {
 				return &client.Client{}, &mockStationFinder2{}
 			},
 			wantErr: false,
 		},
 		{
 			name: "nil http client",
-			setupMocks: func() (*client.Client, StationFinder) {
+			setupMocks: func() (*client.Client, models.StationFinder) {
 				return nil, &mockStationFinder2{}
 			},
 			wantErr:     true,
@@ -658,7 +658,7 @@ func TestNewService(t *testing.T) {
 		},
 		{
 			name: "nil station finder",
-			setupMocks: func() (*client.Client, StationFinder) {
+			setupMocks: func() (*client.Client, models.StationFinder) {
 				return &client.Client{}, nil
 			},
 			wantErr:     true,

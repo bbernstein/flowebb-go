@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/bbernstein/flowebb/backend-go/internal/api"
+	"github.com/bbernstein/flowebb/backend-go/internal/config"
 	"github.com/bbernstein/flowebb/backend-go/internal/models"
 	"github.com/bbernstein/flowebb/backend-go/internal/station"
 	"github.com/bbernstein/flowebb/backend-go/internal/tide"
@@ -15,7 +16,6 @@ import (
 	"net/http"
 	"os"
 	"sync"
-	"time"
 )
 
 // Variables exposed for testing
@@ -28,6 +28,16 @@ var (
 // initializeService is exposed for testing
 func initializeService() {
 	setupOnce.Do(func() {
+		cfg := config.LoadFromEnv()
+		cfg.InitializeLogging()
+
+		ctx := context.Background()
+		httpClient := client.New(client.Options{
+			Timeout:    cfg.HTTPTimeout,
+			MaxRetries: cfg.MaxRetries,
+			BaseURL:    cfg.NOAABaseURL,
+		})
+
 		// Initialize logger
 		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 		levelStr := os.Getenv("LOG_LEVEL")
@@ -47,12 +57,6 @@ func initializeService() {
 			log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 		}
 
-		ctx := context.Background()
-		httpClient := client.New(client.Options{
-			Timeout:    10 * time.Second,
-			MaxRetries: 3,
-			BaseURL:    "https://api.tidesandcurrents.noaa.gov",
-		})
 		stationFinder, _ := station.NewNOAAStationFinder(httpClient, nil)
 
 		tideService, err = tide.NewService(ctx, httpClient, stationFinder)

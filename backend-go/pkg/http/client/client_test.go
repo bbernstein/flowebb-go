@@ -3,10 +3,8 @@ package client
 import (
 	"context"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +90,11 @@ func TestRequestFormatting(t *testing.T) {
 				urlStr := r.URL.String()
 				assert.Equal(t, tt.wantURL, urlStr)
 				w.WriteHeader(tt.wantCode)
+				// Optionally write some body data if needed for other tests
+				_, err := w.Write([]byte("test response"))
+				if err != nil {
+					return
+				}
 			}))
 			defer server.Close()
 
@@ -109,6 +112,8 @@ func TestRequestFormatting(t *testing.T) {
 			resp, err := client.Get(context.Background(), tt.path)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantCode, resp.StatusCode)
+			// Optionally verify the response body if needed
+			assert.NotNil(t, resp.Body)
 		})
 	}
 }
@@ -119,6 +124,10 @@ func TestTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte("this should never be received due to timeout"))
+		if err != nil {
+			return
+		}
 	}))
 	defer server.Close()
 
@@ -136,6 +145,10 @@ func TestTimeout(t *testing.T) {
 func BenchmarkHTTPClient(b *testing.B) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte("benchmark response"))
+		if err != nil {
+			return
+		}
 	}))
 	defer server.Close()
 
@@ -148,16 +161,20 @@ func BenchmarkHTTPClient(b *testing.B) {
 
 	b.Run("Sequential Requests", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_, err := client.Get(ctx, "/test")
+			resp, err := client.Get(ctx, "/test")
 			require.NoError(b, err)
+			require.NotNil(b, resp)
+			require.Equal(b, http.StatusOK, resp.StatusCode)
 		}
 	})
 
 	b.Run("Parallel Requests", func(b *testing.B) {
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				_, err := client.Get(ctx, "/test")
+				resp, err := client.Get(ctx, "/test")
 				require.NoError(b, err)
+				require.NotNil(b, resp)
+				require.Equal(b, http.StatusOK, resp.StatusCode)
 			}
 		})
 	})
@@ -176,10 +193,10 @@ func TestGetFuncInjection(t *testing.T) {
 			name: "custom GetFunc returns success",
 			setupFunc: func() (*Client, context.Context) {
 				client := New(Options{})
-				client.GetFunc = func(ctx context.Context, path string) (*http.Response, error) {
-					return &http.Response{
+				client.GetFunc = func(ctx context.Context, path string) (*Response, error) {
+					return &Response{
 						StatusCode: http.StatusOK,
-						Body:       io.NopCloser(strings.NewReader("test response")),
+						Body:       []byte("test response"),
 					}, nil
 				}
 				return client, context.Background()
@@ -190,7 +207,7 @@ func TestGetFuncInjection(t *testing.T) {
 			name: "custom GetFunc returns error",
 			setupFunc: func() (*Client, context.Context) {
 				client := New(Options{})
-				client.GetFunc = func(ctx context.Context, path string) (*http.Response, error) {
+				client.GetFunc = func(ctx context.Context, path string) (*Response, error) {
 					return nil, errors.New("custom error")
 				}
 				return client, context.Background()
@@ -219,14 +236,7 @@ func TestGetFuncInjection(t *testing.T) {
 			require.NotNil(t, resp, "Response should not be nil")
 			require.NotNil(t, resp.Body, "Response body should not be nil")
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-
-			// Clean up response body
-			defer func(Body io.ReadCloser) {
-				err := Body.Close()
-				if err != nil {
-					t.Errorf("Failed to close response body: %v", err)
-				}
-			}(resp.Body)
+			assert.Equal(t, "test response", string(resp.Body))
 		})
 	}
 }
@@ -265,11 +275,7 @@ func TestGetRequestError(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-
-			// Clean up response body
-			if resp != nil && resp.Body != nil {
-				_ = resp.Body.Close()
-			}
+			require.NotNil(t, resp.Body)
 		})
 	}
 }

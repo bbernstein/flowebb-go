@@ -129,8 +129,8 @@ func TestNewCacheService(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.CacheConfig{
-				LRUSize:       tt.lruSize,
-				LRUTTLMinutes: int(tt.ttl.Minutes()),
+				TidePredictionLRUSize:       tt.lruSize,
+				TidePredictionLRUTTLMinutes: int(tt.ttl.Minutes()),
 			}
 
 			// Create service directly instead of using helper function
@@ -153,8 +153,8 @@ func TestCacheHitAndMiss(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.CacheConfig{
-		LRUSize:       1000,
-		LRUTTLMinutes: 15,
+		TidePredictionLRUSize:       1000,
+		TidePredictionLRUTTLMinutes: 15,
 	}
 
 	service := createTestCacheService(t, cfg)
@@ -201,10 +201,10 @@ func TestCacheHitAndMiss(t *testing.T) {
 func TestCacheExpiration(t *testing.T) {
 	t.Parallel()
 
-	shortTTL := 1 * time.Minute
+	shortTTL := 1
 	cfg := &config.CacheConfig{
-		LRUSize:       1000,
-		LRUTTLMinutes: int(shortTTL.Minutes()),
+		TidePredictionLRUSize:       1000,
+		TidePredictionLRUTTLMinutes: shortTTL,
 	}
 
 	service := createTestCacheService(t, cfg)
@@ -257,9 +257,9 @@ func TestLRUSavePredictionsBatch(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.CacheConfig{
-		LRUSize:       1000,
-		LRUTTLMinutes: 15,
-		BatchSize:     2, // Small batch size to test multiple batches
+		TidePredictionLRUSize:       1000,
+		TidePredictionLRUTTLMinutes: 15,
+		BatchSize:                   2, // Small batch size to test multiple batches
 	}
 
 	service := createTestCacheService(t, cfg)
@@ -299,8 +299,8 @@ func TestDynamoDBHitFallback(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.CacheConfig{
-		LRUSize:       1000,
-		LRUTTLMinutes: 15,
+		TidePredictionLRUSize:       1000,
+		TidePredictionLRUTTLMinutes: 15,
 	}
 
 	// Create a mock DynamoDB client that returns a canned response
@@ -359,8 +359,8 @@ func TestConcurrentAccess(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.CacheConfig{
-		LRUSize:       1000,
-		LRUTTLMinutes: 15,
+		TidePredictionLRUSize:       1000,
+		TidePredictionLRUTTLMinutes: 15,
 	}
 
 	service := createTestCacheService(t, cfg)
@@ -413,8 +413,8 @@ func TestConcurrentAccess(t *testing.T) {
 
 func BenchmarkCacheOperations(b *testing.B) {
 	cfg := &config.CacheConfig{
-		LRUSize:       1000,
-		LRUTTLMinutes: 15,
+		TidePredictionLRUSize:       1000,
+		TidePredictionLRUTTLMinutes: 15,
 	}
 
 	service := createTestCacheService(nil, cfg)

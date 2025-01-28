@@ -15,13 +15,22 @@ import (
 	"time"
 )
 
+type ServiceFactory interface {
+	NewService(ctx context.Context, httpClient *client.Client, finder models.StationFinder) (*Service, error)
+}
+
 type Service struct {
 	HttpClient      *client.Client
-	StationFinder   StationFinder
+	StationFinder   models.StationFinder
 	PredictionCache cache.CacheService
 }
 
-func NewService(ctx context.Context, httpClient *client.Client, stationFinder StationFinder) (*Service, error) {
+type DefaultServiceFactory struct{}
+
+func (f *DefaultServiceFactory) NewService(ctx context.Context, httpClient *client.Client, finder models.StationFinder) (*Service, error) {
+	return NewService(ctx, httpClient, finder)
+}
+func NewService(ctx context.Context, httpClient *client.Client, stationFinder models.StationFinder) (*Service, error) {
 	if httpClient == nil {
 		return nil, fmt.Errorf("http client is required")
 	}
@@ -71,6 +80,8 @@ func (s *Service) GetCurrentTide(ctx context.Context, lat, lon float64, startTim
 }
 
 func (s *Service) GetCurrentTideForStation(ctx context.Context, stationID string, startTimeStr, endTimeStr *string) (*models.ExtendedTideResponse, error) {
+	log.Debug().Str("station_id", stationID).Msg("Getting current tide for station")
+
 	localStation, err := s.StationFinder.FindStation(ctx, stationID)
 	if err != nil {
 		return nil, fmt.Errorf("finding localStation: %w", err)
@@ -229,17 +240,12 @@ func (s *Service) fetchNoaaPredictions(ctx context.Context, stationID, startDate
 	if err != nil {
 		return nil, NewNoaaAPIError("error making HTTP request for predictions", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
-			err = NewNoaaAPIError("error closing predictions response body", closeErr)
-		}
-	}()
 
 	log.Debug().Msgf("Fetched predictions from noaa: station=%s begin_date=%s end_date=%s",
 		stationID, startDate, endDate)
 
 	var noaaResp models.NoaaResponse
-	if err := json.NewDecoder(resp.Body).Decode(&noaaResp); err != nil {
+	if err := json.Unmarshal(resp.Body, &noaaResp); err != nil {
 		return nil, NewNoaaAPIError("error decoding predictions response", err)
 	}
 
@@ -277,17 +283,12 @@ func (s *Service) fetchNoaaExtremes(ctx context.Context, stationID, startDate, e
 	if err != nil {
 		return nil, NewNoaaAPIError("error making HTTP request for extremes", err)
 	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
-			err = NewNoaaAPIError("error closing extremes response body", closeErr)
-		}
-	}()
 
 	log.Debug().Msgf("Fetched extremes from noaa: station=%s begin_date=%s end_date=%s",
 		stationID, startDate, endDate)
 
 	var noaaResp models.NoaaResponse
-	if err := json.NewDecoder(resp.Body).Decode(&noaaResp); err != nil {
+	if err := json.Unmarshal(resp.Body, &noaaResp); err != nil {
 		return nil, NewNoaaAPIError("error decoding extremes response", err)
 	}
 

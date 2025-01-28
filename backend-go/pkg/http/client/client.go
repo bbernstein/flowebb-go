@@ -2,22 +2,31 @@ package client
 
 import (
 	"context"
-	"github.com/rs/zerolog/log"
+	"io"
 	"net/http"
 	"time"
 )
 
-type Options struct {
-	BaseURL    string
-	Timeout    time.Duration
-	MaxRetries int
+type Response struct {
+	StatusCode int
+	Body       []byte
+}
+
+type Interface interface {
+	Get(ctx context.Context, path string) (*Response, error)
 }
 
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
 	maxRetries int
-	GetFunc    func(ctx context.Context, path string) (*http.Response, error)
+	GetFunc    func(ctx context.Context, path string) (*Response, error)
+}
+
+type Options struct {
+	BaseURL    string
+	Timeout    time.Duration
+	MaxRetries int
 }
 
 func New(opts Options) *Client {
@@ -38,7 +47,7 @@ func New(opts Options) *Client {
 	}
 }
 
-func (c *Client) Get(ctx context.Context, path string) (*http.Response, error) {
+func (c *Client) Get(ctx context.Context, path string) (*Response, error) {
 	if c.GetFunc != nil {
 		return c.GetFunc(ctx, path)
 	}
@@ -49,11 +58,30 @@ func (c *Client) Get(ctx context.Context, path string) (*http.Response, error) {
 	} else {
 		fullURL = c.baseURL + path // Otherwise combine them
 	}
-	log.Debug().Str("url", fullURL).Msg("GET request")
+
 	req, err := http.NewRequestWithContext(ctx, "GET", fullURL, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			return
+		}
+	}(resp.Body)
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Response{
+		StatusCode: resp.StatusCode,
+		Body:       body,
+	}, nil
 }

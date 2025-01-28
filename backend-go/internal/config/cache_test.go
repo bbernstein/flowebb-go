@@ -38,8 +38,8 @@ func TestGetCacheConfig(t *testing.T) {
 	envMutex.Lock()
 	originalEnv := make(map[string]string)
 	envVars := []string{
-		"CACHE_LRU_SIZE",
-		"CACHE_LRU_TTL_MINUTES",
+		"CACHE_TIDE_LRU_SIZE",
+		"CACHE_TIDE_LRU_TTL_MINUTES",
 		"CACHE_DYNAMO_TTL_DAYS",
 		"CACHE_STATION_LIST_TTL_DAYS",
 		"CACHE_BATCH_SIZE",
@@ -87,16 +87,16 @@ func TestGetCacheConfig(t *testing.T) {
 		{
 			name:          "default configuration",
 			envVars:       map[string]string{},
-			wantLRUSize:   defaultLRUSize,
-			wantTTL:       time.Duration(defaultLRUTTLMinutes) * time.Minute,
+			wantLRUSize:   defaultTidePredictionLRUSize,
+			wantTTL:       time.Duration(defaultTidePredictionTTLMinutes) * time.Minute,
 			wantEnableLRU: true,
 		},
 		{
 			name: "custom configuration",
 			envVars: map[string]string{
-				"CACHE_LRU_SIZE":        "2000",
-				"CACHE_LRU_TTL_MINUTES": "30",
-				"CACHE_ENABLE_LRU":      "true",
+				"CACHE_TIDE_LRU_SIZE":        "2000",
+				"CACHE_TIDE_LRU_TTL_MINUTES": "30",
+				"CACHE_ENABLE_LRU":           "true",
 			},
 			wantLRUSize:   2000,
 			wantTTL:       30 * time.Minute,
@@ -107,8 +107,8 @@ func TestGetCacheConfig(t *testing.T) {
 			envVars: map[string]string{
 				"CACHE_ENABLE_LRU": "false",
 			},
-			wantLRUSize:   defaultLRUSize,
-			wantTTL:       time.Duration(defaultLRUTTLMinutes) * time.Minute,
+			wantLRUSize:   defaultTidePredictionLRUSize,
+			wantTTL:       time.Duration(defaultTidePredictionTTLMinutes) * time.Minute,
 			wantEnableLRU: false,
 		},
 	}
@@ -126,8 +126,8 @@ func TestGetCacheConfig(t *testing.T) {
 
 			config := GetCacheConfig()
 
-			assert.Equal(t, tt.wantLRUSize, config.LRUSize)
-			assert.Equal(t, tt.wantTTL, config.GetLRUTTL())
+			assert.Equal(t, tt.wantLRUSize, config.TidePredictionLRUSize)
+			assert.Equal(t, tt.wantTTL, config.GetTidePredictionLRUTTL())
 			assert.Equal(t, tt.wantEnableLRU, config.EnableLRUCache)
 
 			// Clear test environment
@@ -186,12 +186,12 @@ func TestEnvironmentOverrides(t *testing.T) {
 		{
 			name: "invalid numeric values",
 			envVars: map[string]string{
-				"CACHE_LRU_SIZE":   "invalid",
-				"CACHE_BATCH_SIZE": "not_a_number",
+				"CACHE_TIDE_LRU_SIZE": "invalid",
+				"CACHE_BATCH_SIZE":    "not_a_number",
 			},
 			check: func(t *testing.T, c *CacheConfig) {
 				// Should fall back to defaults
-				assert.Equal(t, defaultLRUSize, c.LRUSize)
+				assert.Equal(t, defaultTidePredictionLRUSize, c.TidePredictionLRUSize)
 				assert.Equal(t, defaultBatchSize, c.BatchSize)
 			},
 		},
@@ -201,8 +201,8 @@ func TestEnvironmentOverrides(t *testing.T) {
 	envMutex.Lock()
 	originalEnv := make(map[string]string)
 	envVars := []string{
-		"CACHE_LRU_SIZE",
-		"CACHE_LRU_TTL_MINUTES",
+		"CACHE_TIDE_LRU_SIZE",
+		"CACHE_TIDE_LRU_TTL_MINUTES",
 		"CACHE_DYNAMO_TTL_DAYS",
 		"CACHE_STATION_LIST_TTL_DAYS",
 		"CACHE_BATCH_SIZE",
@@ -266,9 +266,9 @@ func TestDefaultValues(t *testing.T) {
 	config := GetCacheConfig()
 
 	// Verify all default values
-	assert.Equal(t, defaultLRUSize, config.LRUSize)
-	assert.Equal(t, defaultLRUTTLMinutes, config.LRUTTLMinutes)
-	assert.Equal(t, defaultDynamoTTLDays, config.DynamoTTLDays)
+	assert.Equal(t, defaultTidePredictionLRUSize, config.TidePredictionLRUSize)
+	assert.Equal(t, defaultTidePredictionTTLMinutes, config.TidePredictionLRUTTLMinutes)
+	assert.Equal(t, defaultDynamoTTLDays, config.TidePredictionDynamoTTLDays)
 	assert.Equal(t, defaultStationListTTLDays, config.StationListTTLDays)
 	assert.Equal(t, defaultBatchSize, config.BatchSize)
 	assert.Equal(t, defaultMaxBatchRetries, config.MaxBatchRetries)
@@ -276,7 +276,7 @@ func TestDefaultValues(t *testing.T) {
 	assert.True(t, config.EnableDynamoCache)
 
 	// Verify helper methods return expected values
-	assert.Equal(t, time.Duration(defaultLRUTTLMinutes)*time.Minute, config.GetLRUTTL())
+	assert.Equal(t, time.Duration(defaultTidePredictionTTLMinutes)*time.Minute, config.GetTidePredictionLRUTTL())
 	assert.Equal(t, time.Duration(defaultDynamoTTLDays)*24*time.Hour, config.GetDynamoTTL())
 	assert.Equal(t, time.Duration(defaultStationListTTLDays)*24*time.Hour, config.GetStationListTTL())
 }
