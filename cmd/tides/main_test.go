@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
-	"github.com/bbernstein/flowebb/backend-go/internal/tide"
-	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
+	"github.com/bbernstein/flowebb-go/internal/models"
+	"github.com/bbernstein/flowebb-go/internal/tide"
+	"github.com/bbernstein/flowebb-go/pkg/http/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

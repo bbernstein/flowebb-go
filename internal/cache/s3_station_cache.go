@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
+	"github.com/bbernstein/flowebb-go/internal/models"
 	"github.com/rs/zerolog/log"
 	"io"
 	"time"

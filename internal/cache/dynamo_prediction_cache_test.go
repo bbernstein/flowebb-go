@@ -2,13 +2,13 @@ package cache
 
 import (
 	"context"
-	"github.com/bbernstein/flowebb/backend-go/internal/config"
+	"github.com/bbernstein/flowebb-go/internal/config"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
+	"github.com/bbernstein/flowebb-go/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

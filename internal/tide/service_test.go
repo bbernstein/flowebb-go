@@ -3,8 +3,8 @@ package tide
 import (
 	"context"
 	"errors"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
-	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
+	"github.com/bbernstein/flowebb-go/internal/models"
+	"github.com/bbernstein/flowebb-go/pkg/http/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"testing"

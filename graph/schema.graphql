@@ -1,6 +1,6 @@
 directive @goModel(model: String) on OBJECT
 
-type Query @goModel(model: "github.com/bbernstein/flowebb/backend-go/graph.Resolver") {
+type Query @goModel(model: "github.com/bbernstein/flowebb-go/graph.Resolver") {
     stations(lat: Float, lon: Float, limit: Int): [Station!]!
     tides(stationId: ID!, startDateTime: String!, endDateTime: String!): TideData!
 }

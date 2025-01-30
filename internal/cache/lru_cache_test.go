@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bbernstein/flowebb/backend-go/internal/config"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
+	"github.com/bbernstein/flowebb-go/internal/config"
+	"github.com/bbernstein/flowebb-go/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

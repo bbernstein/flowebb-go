@@ -3,7 +3,7 @@ package api
 import (
 	"encoding/json"
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
+	"github.com/bbernstein/flowebb-go/internal/models"
 	"net/http"
 	"strconv"
 )

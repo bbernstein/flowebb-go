@@ -1,9 +1,9 @@
 package graph
 
 import (
-	"github.com/bbernstein/flowebb/backend-go/graph/generated"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
-	"github.com/bbernstein/flowebb/backend-go/internal/tide"
+	"github.com/bbernstein/flowebb-go/graph/generated"
+	"github.com/bbernstein/flowebb-go/internal/models"
+	"github.com/bbernstein/flowebb-go/internal/tide"
 )
 
 type Resolver struct {

@@ -7,8 +7,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/bbernstein/flowebb/backend-go/internal/config"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
+	"github.com/bbernstein/flowebb-go/internal/config"
+	"github.com/bbernstein/flowebb-go/internal/models"
 	"github.com/rs/zerolog/log"
 	"time"
 )
