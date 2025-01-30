@@ -2,6 +2,8 @@
 
 export PAGER=""
 
+set -e
+
 ROOT_DIR="$(dirname "$0")/.."
 
 # Change to backend directory

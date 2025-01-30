@@ -4,6 +4,7 @@
 *.iml
 *.ipr
 out/
+docker/
 
 # VS Code
 .vscode/
