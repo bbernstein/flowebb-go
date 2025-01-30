@@ -1,0 +1,52 @@
+name: Deploy Infrastructure and Applications
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Generate GraphQL code
+        run: |
+          rm -rf graph/generated graph/model
+          go mod download
+          go install github.com/99designs/gqlgen@latest
+          gqlgen generate
+          go mod tidy
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build Backend
+        run: |
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bootstrap ./cmd/graphql
+          zip graphql.zip bootstrap
+
+      - name: Update Lambda Functions
+        run: |
+          aws lambda update-function-code --function-name "flowebb-graphql-prod" --zip-file fileb://graphql.zip
+          # Wait for updates to complete
+          aws lambda wait function-updated --function-name "flowebb-graphql-prod"

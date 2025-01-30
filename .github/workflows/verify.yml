@@ -1,0 +1,98 @@
+name: Verify
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  TF_VERSION: 1.5.0
+  COVERAGE_THRESHOLD: 80  # Add this to the job or workflow level env
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  lint-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Clean and prepare
+        run: |
+          rm -rf graph/generated graph/model
+          go mod download
+          go install github.com/99designs/gqlgen@latest
+
+      - name: Generate GraphQL code
+        run: |
+          gqlgen generate
+          go mod tidy
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          args: --timeout=5m
+          skip-cache: true
+
+  test-backend:
+    needs: lint-backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Clean and prepare
+        run: |
+          rm -rf graph/generated graph/model
+          go mod download
+          go install github.com/99designs/gqlgen@latest
+
+      - name: Generate GraphQL code
+        run: |
+          gqlgen generate
+          go mod tidy
+
+      - name: Run race tests
+        run: |
+          go test -race ./...
+
+      - name: Generate test coverage
+        run: |
+          mkdir -p test-results
+          # Run tests with coverage and enforce minimum threshold (e.g., 80%)
+          go test -covermode=atomic -coverpkg=$(go list ./... | grep -v graph/generated | grep -v graph/model |tr '\n' ',') ./... -coverprofile=test-results/coverage.out | tee test-results/coverage.txt
+          
+          # Check if coverage meets threshold
+          COVERAGE=$(go tool cover -func=test-results/coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          THRESHOLD=$COVERAGE_THRESHOLD
+          if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
+            echo "Code coverage $COVERAGE% is below threshold of $THRESHOLD%"
+            exit 1
+          fi
+          
+          # Generate HTML report
+          go tool cover -html=test-results/coverage.out -o test-results/coverage.html
+
+      - name: Upload coverage results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: test-results/*
