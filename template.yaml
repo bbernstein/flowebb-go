@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Tides API SAM Application
+
+Parameters:
+  Stage:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - prod
+      - local
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 128
+    Architectures:
+      - arm64
+    AutoPublishAlias: live
+    SnapStart:
+      ApplyOn: PublishedVersions
+    Environment:
+      Variables:
+        STATION_LIST_BUCKET: !Ref StationListBucket
+        AWS_REGION: !Ref AWS::Region
+        ENV: !If [ IsLocal, "development", "prod" ]
+        DYNAMODB_ENDPOINT: !If [ IsLocal, "http://dynamodb-local:8000", "" ]
+        ALLOWED_ORIGINS: !If [ IsLocal, "http://localhost:3000", "https://app.flowebb.com" ]
+        LOG_LEVEL: "debug"
+        CACHE_TIDE_LRU_SIZE: "1000"
+        CACHE_TIDE_LRU_TTL_MINUTES: "5"
+        CACHE_DYNAMO_TTL_DAYS: "1"
+        CACHE_STATION_LIST_TTL_DAYS: "1"
+        CACHE_ENABLE_LRU: "true"
+        CACHE_ENABLE_DYNAMO: "true"
+  Api:
+    Cors:
+      AllowMethods: "'*'"
+      AllowHeaders: "'*'"
+      AllowOrigin: "'http://localhost:3000'"
+
+Resources:
+  GraphQLFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .aws-sam/build/GraphQLFunction
+      Handler: bootstrap
+      Runtime: provided.al2
+      Events:
+        GraphQLApi:
+          Type: Api
+          Properties:
+            Path: /graphql
+            Method: POST
+
+  StationsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .aws-sam/build/StationsFunction
+      Handler: bootstrap
+      Runtime: provided.al2
+      Events:
+        StationsApi:
+          Type: Api
+          Properties:
+            Path: /api/stations
+            Method: GET
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: "*"
+        - S3ReadPolicy:
+            BucketName: !Ref StationListBucket
+        - S3WritePolicy:
+            BucketName: !Ref StationListBucket
+
+  TidesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .aws-sam/build/TidesFunction
+      Handler: bootstrap
+      Runtime: provided.al2
+      Events:
+        TidesApi:
+          Type: Api
+          Properties:
+            Path: /api/tides
+            Method: GET
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: "*"
+        - S3ReadPolicy:
+            BucketName: !Ref StationListBucket
+
+  StationListBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}-station-list-cache
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldFiles
+            Status: Enabled
+            ExpirationInDays: 7
+
+Conditions:
+  IsLocal:
+    Fn::Equals:
+      - !Ref Stage
+      - local

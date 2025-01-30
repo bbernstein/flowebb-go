@@ -1,0 +1,33 @@
+# IntelliJ
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# macOS
+.DS_Store
+
+# Build directories
+/dist
+/build
+/.next
+/out
+
+### Cache ###
+.gradle/
+.npm/
+.nx/
+.next/
+.claudesync/
+.aws-sam/
+
+*-cache.json
+
+coverage.out
+generated.go
+*_gen.go

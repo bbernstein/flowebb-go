@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
+	"github.com/bbernstein/flowebb-go/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/http"
@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bbernstein/flowebb/backend-go/internal/cache"
-	"github.com/bbernstein/flowebb/backend-go/internal/config"
-	"github.com/bbernstein/flowebb/backend-go/pkg/http/client"
+	"github.com/bbernstein/flowebb-go/internal/cache"
+	"github.com/bbernstein/flowebb-go/internal/config"
+	"github.com/bbernstein/flowebb-go/pkg/http/client"
 )
 
 type mockS3Cache struct {

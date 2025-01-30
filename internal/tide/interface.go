@@ -2,7 +2,7 @@ package tide
 
 import (
 	"context"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
+	"github.com/bbernstein/flowebb-go/internal/models"
 	"time"
 )
 

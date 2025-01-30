@@ -2,7 +2,7 @@ package cache
 
 import (
 	"context"
-	"github.com/bbernstein/flowebb/backend-go/internal/config"
+	"github.com/bbernstein/flowebb-go/internal/config"
 	"github.com/hashicorp/golang-lru/v2"
 	"sync"
 	"time"

@@ -3,8 +3,8 @@ package graph
 import (
 	"context"
 	"fmt"
-	"github.com/bbernstein/flowebb/backend-go/graph/model"
-	"github.com/bbernstein/flowebb/backend-go/internal/models"
+	"github.com/bbernstein/flowebb-go/graph/model"
+	"github.com/bbernstein/flowebb-go/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"testing"

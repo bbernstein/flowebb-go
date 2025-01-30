@@ -8,7 +8,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/bbernstein/flowebb/backend-go/graph/generated"
+	"github.com/bbernstein/flowebb-go/graph/generated"
 	"github.com/rs/zerolog/log"
 	"net/http"
 )
